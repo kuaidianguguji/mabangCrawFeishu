@@ -1,0 +1,39 @@
+# 复制为 config.toml；相对路径均以配置文件所在目录为基准。
+[account]
+username = ""
+password = ""
+# 可用环境变量 MABANG_USERNAME / MABANG_PASSWORD 覆盖。
+
+[browser]
+executable = "" # 留空自动寻找 Chrome，也可填写固定 chrome.exe 路径
+profile_dir = "runtime/browser-profile"
+port = 9333
+headless = false
+language = "zh-CN"
+window_size = "1440,1000"
+user_agent = "" # 留空使用浏览器真实 UA
+close_on_exit = true
+
+[mabang]
+home_url = "https://www.mabangerp.com/index.htm"
+dashboard_url = "https://www.mabangerp.com/index.php?mod=main.cloudbi"
+api_base = "https://mas-oapi.mabangerp.com/mas-report-biscreen-service/api/biscreen/v1/modules/"
+# 首页实际 URL 若不同，请调整；仅按钮消失不视作登录成功。
+logged_in_url_pattern = 'https://www\.mabangerp\.com/index\.php\?mod=main(?:[.&]|$)'
+logged_in_xpath = "" # 可补充只有已登录首页才出现的元素，需与 URL 条件同时满足
+login_link_xpath = '//a[@id="login-btn"]'
+username_xpath = '//input[@id="account"]'
+password_xpath = '//input[@id="password"]'
+submit_xpath = '//input[@id="account-btn"]'
+
+[timing]
+element_timeout = 15
+page_timeout = 45
+login_timeout = 120 # 有验证码时可在浏览器手动完成
+capture_timeout = 60 # 每轮监听的总等待秒数
+poll_interval = 0.5
+retry_count = 2 # 额外重试次数，仅用于采集；不反复提交密码
+retry_interval = 3
+
+[output]
+directory = "output"
