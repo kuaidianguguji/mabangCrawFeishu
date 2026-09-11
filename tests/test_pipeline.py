@@ -36,7 +36,7 @@ class PipelineTests(unittest.TestCase):
 
     def test_unknown_module_preserved(self):
         data = {"unknown": [1, 2]}
-        result = clean_module("hourly", response(data))
+        result = clean_module("future-module", response(data))
         self.assertEqual(result["status"], "unmapped")
         self.assertEqual(result["unmapped_data"], data)
 

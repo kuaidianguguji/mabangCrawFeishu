@@ -1,6 +1,6 @@
 # 马帮 ERP 看板采集与数据清洗
 
-Python 3.11+，DrissionPage 4.1.1.4。当前范围：登录 → 监听 8 个接口 → 原始响应落盘 → 清洗 → 输出字段字典及运行报告。飞书表结构尚未确定，暂不上传。
+Python 3.11+，DrissionPage 4.1.1.4。当前范围：登录 → 监听 8 个接口 → 原始响应落盘 → 清洗 → 输出字段字典及运行报告。已支持六张飞书表的每日宽表映射、预览及按日期更新。首次接入见 [飞书配置说明](docs/feishu_sync.md)。默认只生成预览，配置凭证和表 ID 后可启用同步。
 
 ## 快速使用（PowerShell，项目根目录）
 
@@ -41,9 +41,9 @@ Copy-Item config.example.toml config.toml
 - `cleaned/*.json`：清洗表格、源响应时间戳、运行开始时间、状态、警告、未映射数据。
 - `report.json`：8 个接口是否齐全、缺失接口、错误及每张表行数。
 
-退出码 `0` 表示采集及清洗完整，`2` 表示缺接口、未知结构或清洗校验失败，`1` 表示配置/登录等运行失败。当前四个待确认接口会使正常样例清洗返回 `2`，已完成的结果仍可使用。
+退出码 `0` 表示采集及清洗完整，`2` 表示缺接口、未知结构或清洗校验失败，`1` 表示配置/登录等运行失败。清洗命令的完整性与飞书同步独立；collect 还会检查飞书映射/同步完整性。
 
-样例 `hourly`、`amount-category`、`manager-refund`、`hot-product` 与 `sales-overview` 完全相同；这四个接口只保留数据，标为 `unmapped`，不会冒充小时趋势/退款/热销商品数据。`countrySales` 和 `platforms` 样例为空，只保留，不虚构字段。
+八个接口均已按最新真实响应补齐清洗；国家和品类按要求不写飞书，只保留源数据。旧的重复样例不符合真实结构时会标记 schema_error。
 
 所有接口是实时请求，重试只补缺失模块，所以跨接口不保证同一事务快照。`source_timestamp_ms` 是服务器返回的时间戳；`run_started_at` 是本次运行开始时间，不是订单日期。监听仅收集页面实际发出的请求，不会自动修改看板筛选或点击未展示模块。
 
@@ -60,6 +60,6 @@ Copy-Item config.example.toml config.toml
 | `storage.py` | 本地 JSON 输出及报告 |
 | `__main__.py` | 命令行流程编排 |
 
-新增接口：在 `MODULES` 添加名称，在 `clean_module()` 添加对应分支及字段规则，再添加结构测试。接飞书时可新增 `feishu_sink.py` 读取清洗表，不需要修改浏览器登录。需先决定表粒度、日期/店铺等业务键、追加还是更新、币种及金额精度；当前没有自行决定这些业务规则。
+新增接口：在 `MODULES` 添加名称，在 `clean_module()` 添加对应分支及字段规则，再添加结构测试。`feishu_plan.py` 负责六表映射和历史纠正计划；`feishu.py` 负责鉴权、字段预检、按日期读取和差异写入。修改飞书逻辑不影响浏览器登录。完整字段清单见 docs/feishu_schema.json。
 
 实现参考官方 [监听文档](https://www.drissionpage.cn/browser_control/listener/) 和 [浏览器启动配置](https://www.drissionpage.cn/browser_control/browser_options/)。

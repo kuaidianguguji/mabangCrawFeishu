@@ -6,6 +6,22 @@ from .collector import validate_response
 
 # source: (output, type, meaning)。金额以 Decimal 校验，以十进制字符串存储。
 FIELDS = {
+    "hour": ("hour", "integer", "小时，0–23"),
+    "today": ("today", "decimal", "今日该小时的值"),
+    "yesterday": ("yesterday", "decimal", "昨日该小时的值；优先于昨日采集的 today"),
+    "ratio": ("ratio", "ratio", "销售额变化比例"),
+    "yesterdayIncome": ("yesterday_income", "decimal", "昨日销售额"),
+    "dayBeforeYesterdayIncome": ("day_before_yesterday_income", "decimal", "前日销售额"),
+    "yesterdaySameTimeIncome": ("yesterday_same_time_income", "decimal", "昨日同时点销售额，不能覆盖昨日全天"),
+    "platformId": ("platform_id", "string", "平台 ID"),
+    "platformName": ("platform_name", "string", "平台名称"),
+    "managerId": ("manager_id", "string", "管理员 ID"),
+    "employeeName": ("employee_name", "string", "管理员姓名"),
+    "stockId": ("stock_id", "string", "商品 ID"),
+    "name": ("name", "string", "商品名称"),
+    "sku": ("sku", "string", "商品 SKU"),
+    "orderIncome": ("order_income", "decimal", "退款率分母，订单收入"),
+    "refundRate": ("refund_rate", "ratio", "退款率，与退款金额变化比例区分"),
     "currencyCode": ("currency_code", "string", "币种代码"),
     "date": ("date", "date", "接口统计日期；保留原日期，不调整时区"),
     "orderNum": ("order_count", "integer", "订单数量"),
@@ -99,15 +115,35 @@ def clean_module(name, body):
             result["tables"]["sales_daily"] = rows
             result["unmapped_data"] = {k: v for k, v in data.items() if k != "trend"}
             result["unmapped_trend"] = {k: v for k, v in trend.items() if k not in ("days", "currencyCode")}
-            warnings.append("countrySales 样例为空，尚未定义国家销售字段")
+            warnings.append("国家销售不写飞书，仅保留源数据")
         elif name == "statistics":
             metrics = clean_record(data["metrics"], ("income", "gross", "shipping_total", "expend", "item_total", "order_num"), warnings)
             summary = clean_record({k: v for k, v in data.items() if k not in ("metrics", "platforms", "notes")}, ("todayOrderNum", "orderRatio", "currencyCode"), warnings)
             metrics["currency_code"] = summary["currency_code"]
             result["tables"] = {"statistics_metrics": [metrics], "statistics_summary": [summary]}
             result["notes"] = data.get("notes", [])
-            result["unmapped_data"] = {"platforms": data.get("platforms")}
-            warnings.append("platforms 样例为空，尚未定义平台字段")
+            result["tables"]["platforms"] = records(data["platforms"], ("platformId", "platformName", "sales", "orderNum", "rank"), warnings)
+        elif name == "amount-category":
+            result["tables"]["sales_amount"] = [clean_record(data["amount"], ("income", "currencyCode", "ratio"), warnings)]
+            result["unmapped_data"] = {"categories": data.get("categories")}
+            warnings.append("品类销售不写飞书，仅保留源数据")
+        elif name == "manager-refund":
+            result["tables"]["managers"] = records(data["managers"], ("rank", "managerId", "employeeName", "income", "orderNum"), warnings)
+            result["tables"]["refund_rate"] = [clean_record(data["refundRate"], ("refund", "orderIncome", "refundRate", "currencyCode"), warnings)]
+        elif name == "hot-product":
+            result["tables"]["income_ranking"] = records(data["incomeRanking"], ("rank", "stockId", "name", "income", "quantity"), warnings)
+            result["tables"]["quantity_ranking"] = records(data["quantityRanking"], ("rank", "stockId", "name", "quantity"), warnings)
+        elif name == "hourly":
+            for key in ("sales", "orders"):
+                rows = records(data[key], ("hour", "today", "yesterday"), warnings)
+                hours = [r["hour"] for r in rows]
+                if len(hours) != 24 or set(hours) != set(range(24)):
+                    raise ValueError("小时数据必须覆盖 0–23 时且不重复")
+                if key == "orders":
+                    for row in rows:
+                        for period in ("today", "yesterday"):
+                            row[period] = convert(row[period], "integer")
+                result["tables"]["hourly_" + key] = rows
         elif name == "order-metrics":
             result["tables"]["order_metrics"] = [clean_record(data, ("orderNum", "refund", "currencyCode"), warnings)]
         elif name == "shop-ranking":
@@ -124,3 +160,9 @@ def clean_module(name, body):
         result["unmapped_data"] = data
         warnings.append(f"结构校验失败: {exc}")
     return result
+
+
+def records(rows, required, warnings):
+    if not isinstance(rows, list):
+        raise ValueError("预期记录数组")
+    return [clean_record(row, required, warnings) for row in rows]

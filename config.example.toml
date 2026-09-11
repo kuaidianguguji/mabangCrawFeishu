@@ -37,3 +37,28 @@ retry_interval = 3
 
 [output]
 directory = "output"
+
+[feishu]
+enabled = false # 配齐凭证、表 ID、字段后设 true，collect 将自动同步
+app_id = ""
+app_secret = "" # 也可用 FEISHU_APP_ID / FEISHU_APP_SECRET 环境变量
+app_token = "" # 多维表格 app_token，不是应用 app_id
+timeout = 30
+formula_source_prefix = "马帮-" # 同名业务列为公式时，源值写入此前缀的数字列
+
+[feishu.tables]
+products = "" # 每日商品榜单 table_id
+shops = "" # 每日店铺表现 table_id
+managers = "" # 每日管理员表现 table_id
+platforms = "" # 每日平台销售 table_id
+summary = "" # 每日经营汇总 table_id
+hourly = "" # 每日每时销售额 table_id
+
+[feishu.sync]
+compare_yesterday = false
+correct_day_before_yesterday = false
+backfill_sales_trend = false
+timezone = "Asia/Shanghai"
+currency = "CNY"
+# 请在马帮看板固定筛选；此标签仅记录口径，不会替你切换看板。
+scope = "全平台"

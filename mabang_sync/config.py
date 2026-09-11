@@ -1,6 +1,23 @@
 from pathlib import Path
 import os
 import tomllib
+from zoneinfo import ZoneInfo
+
+
+def merge_config(defaults, supplied, prefix=""):
+    for key, value in supplied.items():
+        if key not in defaults:
+            raise ValueError(f"未知配置项: {prefix}{key}")
+        if isinstance(defaults[key], dict):
+            if not isinstance(value, dict):
+                raise ValueError(f"{prefix}{key} 必须为配置节")
+            merge_config(defaults[key], value, f"{prefix}{key}.")
+        else:
+            if type(value) is not type(defaults[key]) and not (
+                type(defaults[key]) in (int, float) and type(value) in (int, float)
+            ):
+                raise ValueError(f"配置类型错误: {prefix}{key}")
+            defaults[key] = value
 
 
 def load_config(path: Path) -> dict:
@@ -8,12 +25,12 @@ def load_config(path: Path) -> dict:
     template = Path(__file__).resolve().parent.parent / "config.example.toml"
     config = tomllib.loads(template.read_text(encoding="utf-8"))
     supplied = tomllib.loads(path.read_text(encoding="utf-8-sig"))
-    for section, values in supplied.items():
-        if section not in config or not isinstance(values, dict):
-            raise ValueError(f"未知配置节: {section}")
-        if set(values) - set(config[section]):
-            raise ValueError(f"{section} 包含未知配置项")
-        config[section].update(values)
+    merge_config(config, supplied)
+    for key in ("app_id", "app_secret"):
+        config["feishu"][key] = os.getenv(f"FEISHU_{key.upper()}", config["feishu"][key])
+    ZoneInfo(config["feishu"]["sync"]["timezone"])
+    if config["feishu"]["timeout"] <= 0:
+        raise ValueError("feishu.timeout 必须大于零")
     for key in ("username", "password"):
         config["account"][key] = os.getenv(f"MABANG_{key.upper()}", config["account"][key])
     for section, key in (("browser", "profile_dir"), ("output", "directory")):
