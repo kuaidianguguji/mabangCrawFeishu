@@ -18,6 +18,37 @@ Copy-Item config.example.toml config.toml
 
 也可用 `MABANG_USERNAME` / `MABANG_PASSWORD` 环境变量覆盖账号配置。遇到验证码，在登录等待时间内手动完成。登录只提交一次，防止密码错误时持续尝试。首页存在 `//a[@id="login-btn"]` 时点击登录入口；存在 `//div[@id="mb-user"]` 即确认登录成功（`logged_in_xpath`），不依赖 URL。两个标志都不存在时继续等待，不将按钮消失当成登录成功。确认后先启动监听，再跳转数据看板。`logged_in_url_pattern` 仅保留兼容旧配置，不再参与判断。当前代码按所给 XPath 操作同一标签页；若真实网站改为新标签页/iframe，需要据实际页面调整登录适配器。
 
+## 常驻运行：每天北京时间 09:55
+
+`config.toml` 已增加：
+
+```toml
+[schedule]
+times = ["09:55"]
+poll_interval = 5
+state_dir = "runtime/scheduler"
+```
+
+在项目目录启动：
+
+```powershell
+python -m pip install -r requirements.txt
+python -m mabang_sync schedule --config config.toml
+```
+
+启动后会显示下一次执行时刻，每天北京时间（Asia/Shanghai，UTC+8）到点执行一次完整采集、清洗和飞书同步，不受 Windows 当前时区影响。飞书是否上传仍由 `feishu.enabled` 控制。`collect` 命令仍只运行一次。
+
+- 可配置多个时刻，例如 `times = ["09:55", "18:00"]`；必须为两位 HH:MM，不可重复。
+- 修改每日时间、轮询间隔或状态目录后，需要 Ctrl+C 停止并重新启动。账号、飞书开关等任务配置在每次触发前重新读取。
+- 启动时若今天的 09:55 已过，则等待明天，不自动补跑。需要立即运行时先使用 `collect`，完成后再启动 `schedule`。
+- 运行中的任务顺序执行，不重叠。任务失败或返回不完整状态会记录日志，继续等待下一时刻；同一时刻不会无限重试。采集内部原有重试仍生效。
+- 运行期间电脑睡眠后在当天恢复，会补执行已等待的那次任务；若已跨日则跳过旧日期，避免拿今天的数据作为昨日定时结果。任务执行期间错过的其他时刻不排队补跑。
+- `runtime/scheduler/state.json` 保存最后触发时刻与结果，`scheduler.log` 保存北京时间日志并轮转。触发前先保存状态，避免崩溃后重复自动提交；强制中断的任务需检查输出并手动补跑。
+- 同一状态目录只允许一个常驻进程。不要在常驻任务正在采集时另开 `collect`，二者共用浏览器端口。
+- 必须保持 `browser.close_on_exit=true`，每次结束关闭专用浏览器，Cookie 用户目录仍保留。验证码仍可能需要人工处理。
+
+这是项目内常驻命令，不是 Windows 服务，也不会自动开机启动或唤醒电脑。保持电脑开机、联网、不休眠，并让 PowerShell 进程持续运行；Ctrl+C 可停止。仅修改项目不会自动在后台启动进程。
+
 仅处理已有 JSON，不打开浏览器、不需要密码：
 
 ```powershell

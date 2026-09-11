@@ -36,11 +36,34 @@ def export_feishu(captured, config, folder, business_date=None, write=False):
     return not bool(plan["errors"])
 
 
+def run_collection(config):
+    """一次采集任务，供手动命令与常驻调度共用。"""
+    from .browser import open_browser, ensure_login
+    browser = None
+    try:
+        sink = FileSink(config["output"]["directory"])
+        browser, tab = open_browser(config)
+        ensure_login(tab, config)
+        captured, errors = collect(tab, config, sink.save_raw)
+        report = sink.finish(captured, errors)
+        feishu_complete = export_feishu(captured, config, sink.path, write=config["feishu"]["enabled"])
+        if not feishu_complete:
+            logging.warning("飞书映射或同步未全部完成，请查看 feishu_plan.json / feishu_sync_report.json")
+        logging.info("输出目录: %s", sink.path.resolve())
+        logging.info("接口完整: %s；清洗完整: %s", report["capture_complete"], report["cleaning_complete"])
+        return 0 if report["cleaning_complete"] and feishu_complete else 2
+    finally:
+        if browser is not None and config["browser"]["close_on_exit"]:
+            browser.quit()
+
+
 def main():
     parser = argparse.ArgumentParser(description="马帮看板采集与离线清洗")
     sub = parser.add_subparsers(dest="command", required=True)
     live = sub.add_parser("collect", help="浏览器登录、监听并清洗")
     live.add_argument("--config", type=Path, default=Path("config.toml"))
+    scheduled = sub.add_parser("schedule", help="常驻运行，按配置的北京时间每日执行")
+    scheduled.add_argument("--config", type=Path, default=Path("config.toml"))
     offline = sub.add_parser("clean", help="清洗目录中的 8 个 JSON，无需账号或浏览器")
     offline.add_argument("--input", type=Path, required=True)
     offline.add_argument("--output", type=Path, default=Path("output"))
@@ -51,8 +74,12 @@ def main():
     sync.add_argument("--write", action="store_true", help="实际写入已配置的飞书表")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
-    browser = None
     try:
+        if args.command == "schedule":
+            from .scheduler import run_scheduler
+            return run_scheduler(args.config, run_collection)
+        if args.command == "collect":
+            return run_collection(load_config(args.config))
         if args.command == "feishu":
             config = load_config(args.config)
             folder = args.input / "raw" if (args.input / "raw").is_dir() else args.input
@@ -74,26 +101,12 @@ def main():
                 except (OSError, ValueError) as exc:
                     errors[name] = type(exc).__name__
             report = sink.finish(captured, errors)
-        else:
-            from .browser import open_browser, ensure_login
-            config = load_config(args.config)
-            sink = FileSink(config["output"]["directory"])
-            browser, tab = open_browser(config)
-            ensure_login(tab, config)
-            captured, errors = collect(tab, config, sink.save_raw)
-            report = sink.finish(captured, errors)
-            feishu_complete = export_feishu(captured, config, sink.path, write=config["feishu"]["enabled"])
-            if not feishu_complete:
-                logging.warning("飞书映射或同步未全部完成，请查看 feishu_plan.json / feishu_sync_report.json")
         print(f"输出目录: {sink.path.resolve()}")
         print(f"接口完整: {report['capture_complete']}；清洗完整: {report['cleaning_complete']}")
-        return 0 if report["cleaning_complete"] and (args.command != "collect" or feishu_complete) else 2
+        return 0 if report["cleaning_complete"] else 2
     except (OSError, ValueError, RuntimeError) as exc:
         logging.error("运行失败: %s", exc)
         return 1
-    finally:
-        if browser is not None and config["browser"]["close_on_exit"]:
-            browser.quit()
 
 
 if __name__ == "__main__":

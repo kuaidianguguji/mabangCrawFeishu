@@ -1,6 +1,7 @@
 from pathlib import Path
 import os
 import tomllib
+import re
 from zoneinfo import ZoneInfo
 
 
@@ -33,7 +34,7 @@ def load_config(path: Path) -> dict:
         raise ValueError("feishu.timeout 必须大于零")
     for key in ("username", "password"):
         config["account"][key] = os.getenv(f"MABANG_{key.upper()}", config["account"][key])
-    for section, key in (("browser", "profile_dir"), ("output", "directory")):
+    for section, key in (("browser", "profile_dir"), ("output", "directory"), ("schedule", "state_dir")):
         config[section][key] = str((path.parent / config[section][key]).resolve())
     for key, value in config["timing"].items():
         if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
@@ -46,4 +47,11 @@ def load_config(path: Path) -> dict:
         raise ValueError("browser.port 必须为 1024–65535 整数")
     if not config["mabang"]["logged_in_xpath"]:
         config["mabang"]["logged_in_xpath"] = '//div[@id="mb-user"]'
+    schedule = config["schedule"]
+    if not schedule["times"] or any(not isinstance(v, str) or not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", v) for v in schedule["times"]):
+        raise ValueError("schedule.times 需要至少一个北京时间 HH:MM，例如 [\"23:50\"]")
+    if len(set(schedule["times"])) != len(schedule["times"]):
+        raise ValueError("schedule.times 不允许重复时间")
+    if not 1 <= schedule["poll_interval"] <= 60:
+        raise ValueError("schedule.poll_interval 必须在 1～60 秒之间")
     return config

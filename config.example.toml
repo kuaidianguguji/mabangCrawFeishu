@@ -38,6 +38,11 @@ retry_interval = 3
 [output]
 directory = "output"
 
+[schedule]
+times = ["09:55"] # 北京时间，支持多个 HH:MM，例如 ["09:00", "18:00"]
+poll_interval = 5 # 检查时间的间隔秒数，1～60
+state_dir = "runtime/scheduler" # 保存防重记录及常驻日志
+
 [feishu]
 enabled = false # 配齐凭证、表 ID、字段后设 true，collect 将自动同步
 app_id = ""

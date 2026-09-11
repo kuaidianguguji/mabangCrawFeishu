@@ -1,3 +1,4 @@
 DrissionPage==4.1.1.4
 requests>=2.32,<3
 tzdata>=2024.1
+filelock>=3.15,<4
