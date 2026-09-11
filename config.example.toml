@@ -18,9 +18,9 @@ close_on_exit = true
 home_url = "https://www.mabangerp.com/index.htm"
 dashboard_url = "https://www.mabangerp.com/index.php?mod=main.cloudbi"
 api_base = "https://mas-oapi.mabangerp.com/mas-report-biscreen-service/api/biscreen/v1/modules/"
-# 首页实际 URL 若不同，请调整；仅按钮消失不视作登录成功。
-logged_in_url_pattern = 'https://www\.mabangerp\.com/index\.php\?mod=main(?:[.&]|$)'
-logged_in_xpath = "" # 可补充只有已登录首页才出现的元素，需与 URL 条件同时满足
+# 登录成功通过 mb-user 元素判断，不依赖 URL。
+logged_in_url_pattern = "" # 兼容旧配置保留，不再用于判断登录
+logged_in_xpath = '//div[@id="mb-user"]' # 此元素存在即登录成功
 login_link_xpath = '//a[@id="login-btn"]'
 username_xpath = '//input[@id="account"]'
 password_xpath = '//input[@id="password"]'

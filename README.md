@@ -16,7 +16,7 @@ Copy-Item config.example.toml config.toml
 .\.venv\Scripts\python.exe -m mabang_sync collect --config config.toml
 ```
 
-也可用 `MABANG_USERNAME` / `MABANG_PASSWORD` 环境变量覆盖账号配置。遇到验证码，在登录等待时间内手动完成。登录只提交一次，防止密码错误时持续尝试。若首页 URL 不符合默认规则，请修改 `logged_in_url_pattern`；还可配置已登录专属元素 `logged_in_xpath`。当前代码按所给 XPath 操作同一标签页；若真实网站改为新标签页/iframe，需要据实际页面调整登录适配器。
+也可用 `MABANG_USERNAME` / `MABANG_PASSWORD` 环境变量覆盖账号配置。遇到验证码，在登录等待时间内手动完成。登录只提交一次，防止密码错误时持续尝试。首页存在 `//a[@id="login-btn"]` 时点击登录入口；存在 `//div[@id="mb-user"]` 即确认登录成功（`logged_in_xpath`），不依赖 URL。两个标志都不存在时继续等待，不将按钮消失当成登录成功。确认后先启动监听，再跳转数据看板。`logged_in_url_pattern` 仅保留兼容旧配置，不再参与判断。当前代码按所给 XPath 操作同一标签页；若真实网站改为新标签页/iframe，需要据实际页面调整登录适配器。
 
 仅处理已有 JSON，不打开浏览器、不需要密码：
 

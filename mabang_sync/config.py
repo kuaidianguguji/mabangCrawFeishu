@@ -1,6 +1,5 @@
 from pathlib import Path
 import os
-import re
 import tomllib
 
 
@@ -28,5 +27,6 @@ def load_config(path: Path) -> dict:
         raise ValueError("retry_count 必须为整数")
     if type(config["browser"]["port"]) is not int or not 1024 <= config["browser"]["port"] <= 65535:
         raise ValueError("browser.port 必须为 1024–65535 整数")
-    re.compile(config["mabang"]["logged_in_url_pattern"])
+    if not config["mabang"]["logged_in_xpath"]:
+        config["mabang"]["logged_in_xpath"] = '//div[@id="mb-user"]'
     return config

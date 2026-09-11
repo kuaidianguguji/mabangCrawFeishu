@@ -1,5 +1,4 @@
 import logging
-import re
 import socket
 import time
 from pathlib import Path
@@ -35,26 +34,39 @@ def ensure_login(tab, config):
     deadline = time.monotonic() + t["login_timeout"]
     submitted = False
     clicked = False
+    stage = "等待首页登录状态"
     while time.monotonic() < deadline:
-        user = tab.ele("xpath:" + m["username_xpath"], timeout=0.1)
+        if tab.ele("xpath:" + m["logged_in_xpath"], timeout=0.1):
+            logging.info("已检测到登录成功标志 mb-user")
+            return
         link = tab.ele("xpath:" + m["login_link_xpath"], timeout=0.1)
-        user_visible = bool(user and user.states.is_displayed)
-        link_visible = bool(link and link.states.is_displayed)
-        if not user_visible and not link_visible and re.search(m["logged_in_url_pattern"], tab.url):
-            if not m["logged_in_xpath"] or tab.ele("xpath:" + m["logged_in_xpath"], timeout=0.1):
-                logging.info("已确认登录首页")
-                return
-        if user_visible and not submitted:
-            account = config["account"]
-            if not account["username"] or not account["password"]:
-                raise RuntimeError("当前未登录，请在 config.toml 或环境变量中配置用户名和密码")
-            user.input(account["username"], clear=True)
-            tab.ele("xpath:" + m["password_xpath"]).input(account["password"], clear=True)
-            tab.ele("xpath:" + m["submit_xpath"]).click()
-            submitted = True
-            logging.info("已提交登录；如有验证码，请在浏览器中完成")
-        elif link_visible and not clicked and not submitted:
-            link.click()
-            clicked = True
+        # 首页可能预先存在账号输入框，必须先点击登录入口再访问表单。
+        if not clicked and link:
+            stage = "等待首页登录按钮可见"
+            if link.states.is_displayed:
+                link.click()
+                clicked = True
+                stage = "等待登录弹窗的账号、密码及提交按钮可见"
+                logging.info("已点击首页登录按钮，等待登录弹窗")
+            time.sleep(t["poll_interval"])
+            continue
+
+        if clicked and not submitted:
+            elements = {key: tab.ele("xpath:" + m[key], timeout=0.1)
+                        for key in ("username_xpath", "password_xpath", "submit_xpath")}
+            missing = [m[key] for key, element in elements.items()
+                       if not element or not element.states.is_displayed]
+            if missing:
+                stage = "等待登录弹窗元素可见: " + ", ".join(missing)
+            else:
+                account = config["account"]
+                if not account["username"] or not account["password"]:
+                    raise RuntimeError("当前未登录，请在 config.toml 或环境变量中配置用户名和密码")
+                elements["username_xpath"].input(account["username"], clear=True)
+                elements["password_xpath"].input(account["password"], clear=True)
+                elements["submit_xpath"].click()
+                submitted = True
+                stage = "已提交登录，等待首页；检查验证码或登录错误提示"
+                logging.info("已提交登录；如有验证码，请在浏览器中完成")
         time.sleep(t["poll_interval"])
-    raise RuntimeError("登录确认超时：检查账号、验证码或已登录首页 URL/元素配置")
+    raise RuntimeError(f"登录确认超时：{stage}；请检查页面和配置的 XPath/登录成功标志")
