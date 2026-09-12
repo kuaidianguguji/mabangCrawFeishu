@@ -9,6 +9,7 @@ from filelock import FileLock
 from mabang_sync.config import load_config
 from mabang_sync.scheduler import BEIJING, next_run, run_scheduler, run_slot
 from mabang_sync.__main__ import run_collection
+from mabang_sync.diagnostics import FeishuError
 
 
 class SchedulerTests(unittest.TestCase):
@@ -73,6 +74,15 @@ class SchedulerTests(unittest.TestCase):
             with FileLock(str(Path(tmp) / "scheduler.lock")), patch("mabang_sync.scheduler.load_config", return_value=self.config):
                 with self.assertRaisesRegex(RuntimeError, "已有常驻进程"):
                     run_scheduler(Path("config.toml"), Mock())
+
+    def test_safe_feishu_error_keeps_concrete_reason_in_scheduler(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            slot = datetime(2026, 9, 11, 9, 55, tzinfo=BEIJING)
+            with patch("mabang_sync.scheduler.load_config", return_value=self.config), self.assertLogs(level="ERROR") as logs:
+                state = run_slot(slot, Path(tmp) / "state.json", Path("config.toml"),
+                                 Mock(side_effect=FeishuError("每日店铺表现 缺少字段 排名1-店铺名")), lambda: slot)
+            self.assertIn("排名1-店铺名", state["error"])
+            self.assertIn("排名1-店铺名", "\n".join(logs.output))
 
     def test_collection_closes_browser_on_login_failure(self):
         browser = Mock()

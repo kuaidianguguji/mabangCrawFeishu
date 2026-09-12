@@ -1,11 +1,13 @@
 import copy
 import unittest
+from unittest.mock import Mock
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 from mabang_sync.config import load_config, merge_config
 from mabang_sync.feishu_plan import build_plan, table_schema
-from mabang_sync.feishu import equal_value, sync_plan
+from mabang_sync.feishu import equal_value, sync_plan, FeishuClient
+from mabang_sync.diagnostics import FeishuError
 
 STAMP = int(datetime(2026, 9, 11, 15, tzinfo=ZoneInfo("Asia/Shanghai")).timestamp() * 1000)
 
@@ -68,6 +70,48 @@ class FeishuTests(unittest.TestCase):
         row = next(r for r in plan["records"] if r["table"] == "products")
         self.assertEqual(row["fields"]["排名1-商品名"], "商品一")
         self.assertIsNone(row["fields"]["排名5-商品名"])
+
+    def test_check_mode_never_writes_and_reports_expected_creates(self):
+        client = FakeClient()
+        result = sync_plan(client, build_plan(self.raw, self.config), self.config, check_only=True)
+        self.assertTrue(result["complete"])
+        self.assertEqual(client.writes, [])
+        self.assertEqual([r["action"] for r in result["actions"]], ["would_create"] * 6)
+
+    def test_misspelled_field_reports_actual_candidate_and_stops_before_write(self):
+        client = FakeClient()
+        original = client.fields
+        def fields(table):
+            values = original(table)
+            if table == "shops":
+                next(f for f in values if f["field_name"] == "排名1-店铺名")["field_name"] = "排名1-店铺名1"
+            return values
+        client.fields = fields
+        with self.assertLogs(level="INFO") as logs:
+            with self.assertRaisesRegex(FeishuError, "排名1-店铺名"):
+                sync_plan(client, build_plan(self.raw, self.config), self.config)
+        self.assertIn("排名1-店铺名1", "\n".join(logs.output))
+        self.assertIn("已成功写入=0条", "\n".join(logs.output))
+        self.assertEqual(client.writes, [])
+
+    def test_api_logs_and_errors_redact_credentials(self):
+        feishu = self.config["feishu"]
+        feishu.update(app_id="private-app-id", app_secret="private-secret", app_token="private-base-token")
+        feishu["tables"] = {key: "tbl_" + key for key in table_schema()}
+        client = FeishuClient(self.config)
+        client.token = "private-access-token"
+        response = Mock(status_code=200)
+        response.json.return_value = {"code": 999, "msg": " ".join([feishu["app_id"], feishu["app_secret"], feishu["app_token"], client.token])}
+        client.session = Mock()
+        client.session.request.return_value = response
+        with self.assertLogs(level="INFO") as logs:
+            with self.assertRaises(FeishuError) as error:
+                client.request("GET", client.path("shops", "fields"))
+        output = "\n".join(logs.output) + str(error.exception)
+        for secret in (feishu["app_id"], feishu["app_secret"], feishu["app_token"], client.token):
+            self.assertNotIn(secret, output)
+        self.assertIn("HTTP=200", output)
+        self.assertIn("999", output)
 
     def test_beijing_row_date_and_brazil_source_date_are_separate(self):
         stamp = int(datetime(2026, 9, 12, 9, 55, tzinfo=ZoneInfo("Asia/Shanghai")).timestamp() * 1000)

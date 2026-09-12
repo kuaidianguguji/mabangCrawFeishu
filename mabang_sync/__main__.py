@@ -6,6 +6,7 @@ from .collector import MODULES, collect, validate_response
 from .config import load_config
 from .storage import FileSink, write_json
 from .feishu_plan import build_plan
+from .diagnostics import FeishuError, safe_text
 
 
 def read_responses(folder):
@@ -18,19 +19,48 @@ def read_responses(folder):
     return captured, errors
 
 
-def export_feishu(captured, config, folder, business_date=None, write=False):
+def export_feishu(captured, config, folder, business_date=None, write=False, check_only=False):
+    folder = Path(folder)
+    folder.mkdir(parents=True, exist_ok=True)
+    handler = logging.FileHandler(folder / "feishu.log", encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    logging.getLogger().addHandler(handler)
+    try:
+        return _export_feishu(captured, config, folder, business_date, write, check_only)
+    except Exception as exc:
+        message = safe_text(exc, config)
+        logging.error("飞书流程未完成：%s；详细日志=%s", message, (folder / "feishu.log").resolve())
+        raise FeishuError(message) from None
+    finally:
+        logging.getLogger().removeHandler(handler)
+        handler.close()
+
+
+def _export_feishu(captured, config, folder, business_date, write, check_only):
+    logging.info("飞书运行配置：enabled=%s；本次执行=%s；昨日比对=%s；历史趋势回补=%s",
+                 config["feishu"]["enabled"], "只读检查" if check_only else "写入" if write else "本地预览",
+                 config["feishu"]["sync"]["compare_yesterday"], config["feishu"]["sync"]["backfill_sales_trend"])
     plan = build_plan(captured, config, business_date)
     write_json(folder / "feishu_plan.json", plan)
-    if write:
-        logging.info("飞书上传已启用，准备检查字段并同步 %s 条日记录", len(plan["records"]))
+    logging.info("飞书写入计划已保存：%s；记录=%s条；错误=%s；警告=%s",
+                 (folder / "feishu_plan.json").resolve(), len(plan["records"]), safe_text(plan["errors"], config), safe_text(plan["warnings"], config))
+    if write or check_only:
+        logging.info("准备%s %s 条日记录", "只读检查" if check_only else "同步", len(plan["records"]))
         from .feishu import FeishuClient, sync_plan
-        result = sync_plan(FeishuClient(config), plan, config,
-                           progress=lambda value: write_json(folder / "feishu_sync_report.json", value))
+        report_path = folder / ("feishu_check_report.json" if check_only else "feishu_sync_report.json")
+        write_json(report_path, {"complete": False, "phase": "configuration", "actions": []})
+        try:
+            client = FeishuClient(config)
+        except FeishuError as exc:
+            write_json(report_path, {"complete": False, "phase": "configuration", "actions": [], "error": safe_text(exc, config)})
+            raise
+        result = sync_plan(client, plan, config,
+                           progress=lambda value: write_json(report_path, value), check_only=check_only)
         counts = {}
         for action in result["actions"]:
             kind = action["action"]
             counts[kind] = counts.get(kind, 0) + 1
-        logging.info("飞书同步结果：%s；完整: %s", counts, result["complete"])
+        logging.info("飞书%s结果：%s；完整: %s；报告=%s", "检查" if check_only else "同步", counts, result["complete"], report_path.resolve())
         return result["complete"]
     logging.info("飞书未上传：当前仅生成预览（collect 请设置 feishu.enabled=true；离线命令请加 --write）")
     return not bool(plan["errors"])
@@ -72,7 +102,9 @@ def main():
     sync.add_argument("--input", type=Path, required=True, help="运行目录或 raw 目录")
     sync.add_argument("--config", type=Path, default=Path("config.toml"))
     sync.add_argument("--date", help="显式指定源数据统计日 YYYY-MM-DD；默认按源时间戳和配置时区")
-    sync.add_argument("--write", action="store_true", help="实际写入已配置的飞书表")
+    sync_mode = sync.add_mutually_exclusive_group()
+    sync_mode.add_argument("--write", action="store_true", help="实际写入已配置的飞书表")
+    sync_mode.add_argument("--check", action="store_true", help="联网只读检查字段与记录差异，不写飞书")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     try:
@@ -88,8 +120,8 @@ def main():
             if errors:
                 logging.warning("部分源数据缺失或无效: %s", ", ".join(errors))
             target = folder.parent if folder.name == "raw" else folder
-            complete = export_feishu(captured, config, target, args.date, args.write)
-            print(f"飞书{'同步' if args.write else '预览'}完成，完整: {complete}；输出: {target.resolve()}")
+            complete = export_feishu(captured, config, target, args.date, args.write, args.check)
+            print(f"飞书{'同步' if args.write else '检查' if args.check else '预览'}完成，完整: {complete}；输出: {target.resolve()}")
             return 0 if complete else 2
         if args.command == "clean":
             sink = FileSink(args.output)

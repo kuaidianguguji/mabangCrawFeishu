@@ -58,6 +58,18 @@ python -m mabang_sync feishu --input output/20260911_155842_7ce54843
 
 输出同目录的 feishu_plan.json。它包含每张表每个日期将更新的字段、历史标记、来源冲突及跳过原因。
 
+联网只读检查字段、日期和数据差异（不写入飞书）：
+
+```powershell
+python -m mabang_sync feishu --input output/20260912_111614_7b10d41d --check
+```
+
+输出 `feishu_check_report.json`，检查失败时记录阶段、表名和原因。检查通过时动作是 would_create / would_update / unchanged / skip_older_snapshot；它们不是实际写入结果。`--check` 与 `--write` 不能同时使用。
+
+每次飞书流程会在输入/运行目录追加 `feishu.log`。日志包含：执行模式和历史开关、计划条数、鉴权状态、请求方法及脱敏路径、HTTP/业务状态码、耗时、分页数量、字段名及类型差异、相近字段提示、日期匹配、变化字段名、旧快照/数据相同的跳过原因，以及实际写入成功的 record_id。不会输出密码、App Secret 或访问令牌，也不会整份打印业务记录。常驻运行时同样写入 scheduler.log，具体飞书失败原因也保存到调度状态文件。
+
+程序先检查所有待同步表，再开始写入。任一表有缺失字段或重复日期，整批会在预检阶段停止，报告中 actions 为空、成功写入数为零。例如实际字段 `排名1-店铺名1` 与预期 `排名1-店铺名` 不同，需要先在飞书纠正字段名，不会自动猜测目标列。
+
 配置完成后实际写入：
 
 ```powershell

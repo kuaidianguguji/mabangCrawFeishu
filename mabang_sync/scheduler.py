@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 from filelock import FileLock, Timeout
 from .config import load_config
 from .storage import write_json
+from .diagnostics import FeishuError
 
 BEIJING = ZoneInfo("Asia/Shanghai")
 
@@ -54,6 +55,9 @@ def run_slot(slot, state_path, config_path, runner, clock=now_beijing):
         raise
     except Exception as exc:
         state.update(status="failed", error_type=type(exc).__name__)
+        if isinstance(exc, FeishuError):
+            state["error"] = str(exc)
+            logging.error("本次飞书任务失败：%s", exc)
         logging.error("本次定时运行失败（%s），常驻进程将继续等待下一时刻", type(exc).__name__)
     finally:
         state["finished_at"] = clock().isoformat()
