@@ -60,6 +60,7 @@ class PipelineTests(unittest.TestCase):
         config = load_config(Path("config.example.toml"))
         config["timing"]["retry_count"] = 0
         tab = Mock()
+        tab.ele.return_value.text = "UTC-3 巴西时区"
         packets = [SimpleNamespace(url=config["mabang"]["api_base"] + n + "?x=1", is_failed=False,
                                    response=SimpleNamespace(status=200, body=response({}))) for n in MODULES]
         tab.listen.wait.side_effect = [packets[0], packets[0], *packets[1:]]
@@ -67,14 +68,18 @@ class PipelineTests(unittest.TestCase):
         captured, errors = collect(tab, config, sink)
         self.assertEqual(set(captured), set(MODULES))
         self.assertEqual(sink.call_count, 8)
-        self.assertEqual(tab.mock_calls[0][0], "listen.start")
-        self.assertEqual(tab.mock_calls[1][0], "get")
+        self.assertEqual(tab.mock_calls[0][0], "listen.stop")
+        self.assertEqual(tab.mock_calls[1][0], "listen.start")
+        actions = [c[0] for c in tab.mock_calls]
+        self.assertLess(actions.index("listen.start"), actions.index("get"))
+        tab.refresh.assert_not_called()
         self.assertEqual(errors, {})
-        tab.listen.stop.assert_called_once()
+        self.assertEqual(tab.listen.stop.call_count, 2)
 
     def test_collector_retries_failed_response(self):
         config = load_config(Path("config.example.toml"))
         tab = Mock()
+        tab.ele.return_value.text = "UTC-3 巴西时区"
         tab.get.side_effect = [RuntimeError("navigation"), None]
         tab.listen.wait.side_effect = [SimpleNamespace(url=config["mabang"]["api_base"] + n, is_failed=False,
             response=SimpleNamespace(status=200, body=response({}))) for n in MODULES]

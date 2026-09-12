@@ -6,6 +6,7 @@ from .cleaners import clean_module
 
 TABLE_NAMES = {"products": "每日商品榜单", "shops": "每日店铺表现", "managers": "每日管理员表现",
                "platforms": "每日平台销售", "summary": "每日经营汇总", "hourly": "每日每时销售额"}
+UPDATED_AT_FIELD = "更新时间(巴西)"
 RANK_FIELDS = {
     "products": {"商品名": "name", "销售额": "income_amount", "销量": "quantity"},
     "shops": {"店铺名": "shop_name", "销售额": "income_amount", "订单数": "order_count", "销量原值": "sku_count", "毛利润": "gross_profit"},
@@ -20,7 +21,7 @@ SUMMARY_FIELDS = {"订单收入": "order_revenue", "订单数": "order_count", "
 
 def table_schema():
     # 飞书类型：1 文本、2 数字、5 日期；比例字段使用数字百分比显示。
-    schema = {key: {"日期": 5, "更新时间": 5, "数据说明": 1} for key in TABLE_NAMES}
+    schema = {key: {"日期": 5, UPDATED_AT_FIELD: 5, "数据说明": 1} for key in TABLE_NAMES}
     for key, mapping in RANK_FIELDS.items():
         for rank in range(1, 6):
             for label in mapping:
@@ -43,7 +44,7 @@ def number(value):
 
 def build_plan(captured, config, business_date=None):
     sync = config["feishu"]["sync"]
-    zone = ZoneInfo(sync["timezone"])
+    zone = ZoneInfo(sync["business_timezone"])
     timestamps = [b.get("currentTimestamp") for b in captured.values()]
     if not timestamps or any(type(ts) is not int or ts <= 0 for ts in timestamps):
         raise ValueError("缺少有效接口时间戳，无法生成按日写入计划")
@@ -51,11 +52,18 @@ def build_plan(captured, config, business_date=None):
     if len(dates) != 1:
         raise ValueError("响应跨统计日，请重新采集，避免 today/yesterday 归错日期")
     today = date.fromisoformat(business_date) if business_date else dates.pop()
+    source_dates = {datetime.fromtimestamp(ts / 1000, ZoneInfo(sync["source_timezone"])).date() for ts in timestamps}
+    if len(source_dates) != 1:
+        raise ValueError("响应跨看板统计日，请重新采集")
+    source_today = source_dates.pop()
+    date_shift = today - source_today
     yesterday = today - timedelta(days=1)
     stamp = max(timestamps)
     cleaned = {name: clean_module(name, body) for name, body in captured.items()}
     plan = {"business_date": today.isoformat(), "source_timestamp_ms": stamp,
-            "timezone": sync["timezone"], "scope": sync["scope"], "currency": sync["currency"],
+            "timezone": sync["timezone"], "business_timezone": sync["business_timezone"],
+            "source_timezone": sync["source_timezone"], "source_business_date": source_today.isoformat(),
+            "scope": sync["scope"], "currency": sync["currency"],
             "records": [], "errors": {}, "warnings": []}
 
     def tables(module):
@@ -132,7 +140,8 @@ def build_plan(captured, config, business_date=None):
     try:
         if sync["backfill_sales_trend"]:
             for row in tables("sales-overview")["sales_daily"]:
-                day = date.fromisoformat(row["date"])
+                # 历史源日期与本批 today/yesterday 采用一致的北京时间行标签。
+                day = date.fromisoformat(row["date"]) + date_shift
                 if day < today:
                     if day in history:
                         raise ValueError("历史趋势日期重复")

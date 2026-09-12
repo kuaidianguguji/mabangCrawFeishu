@@ -64,6 +64,7 @@ def main():
     live.add_argument("--config", type=Path, default=Path("config.toml"))
     scheduled = sub.add_parser("schedule", help="常驻运行，按配置的北京时间每日执行")
     scheduled.add_argument("--config", type=Path, default=Path("config.toml"))
+    scheduled.add_argument("--now", action="store_true", help="立即运行一次，完成后继续按北京时间定时运行")
     offline = sub.add_parser("clean", help="清洗目录中的 8 个 JSON，无需账号或浏览器")
     offline.add_argument("--input", type=Path, required=True)
     offline.add_argument("--output", type=Path, default=Path("output"))
@@ -77,7 +78,7 @@ def main():
     try:
         if args.command == "schedule":
             from .scheduler import run_scheduler
-            return run_scheduler(args.config, run_collection)
+            return run_scheduler(args.config, run_collection, run_now=args.now)
         if args.command == "collect":
             return run_collection(load_config(args.config))
         if args.command == "feishu":

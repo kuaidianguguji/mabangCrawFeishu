@@ -3,7 +3,7 @@ from datetime import date, datetime, time
 from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 import requests
-from .feishu_plan import TABLE_NAMES, table_schema
+from .feishu_plan import TABLE_NAMES, table_schema, UPDATED_AT_FIELD
 
 
 class FeishuClient:
@@ -85,23 +85,44 @@ def equal_value(old, new):
     return old == new
 
 
+def timestamp_ms(value, source_timezone):
+    """兼容日期字段的毫秒值，以及文本字段的带时区 ISO 时间。"""
+    value = scalar(value)
+    if value in (None, "", []):
+        return None
+    try:
+        return int(value)
+    except (ValueError, TypeError):
+        try:
+            parsed = datetime.fromisoformat(value)
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=ZoneInfo(source_timezone))
+            return int(parsed.timestamp() * 1000)
+        except (ValueError, TypeError):
+            raise ValueError("更新时间字段既不是毫秒时间戳，也不是有效 ISO 日期时间") from None
+
+
 def sync_plan(client, plan, config, progress=None):
     """先读完所有相关表并验证，再写入；按日期定位，不修改未传入字段。"""
     progress = progress or (lambda report: None)
     zone = ZoneInfo(plan["timezone"])
     report = {"complete": False, "actions": [], "plan_errors": plan["errors"]}
-    indexes, field_maps = {}, {}
+    indexes, field_maps, updated_fields = {}, {}, {}
     try:
         client.authenticate()
         for table in sorted({row["table"] for row in plan["records"]}):
             fields = {f["field_name"]: f["type"] for f in client.fields(table)}
             expected = table_schema()[table]
             mapping = {}
+            update_name = UPDATED_AT_FIELD if UPDATED_AT_FIELD in fields else "更新时间"
+            if fields.get(update_name) in (1, 5):
+                mapping[UPDATED_AT_FIELD] = update_name
+                updated_fields[table] = (update_name, fields[update_name])
             for key, kind in expected.items():
                 if kind == 2 and fields.get(key) == 20:
                     mapping[key] = config["feishu"].get("formula_source_prefix", "马帮-") + key
             bad = [f"{mapping.get(key, key)}(需类型{kind})" for key, kind in expected.items()
-                   if fields.get(mapping.get(key, key)) != kind]
+                   if fields.get(mapping.get(key, key)) != kind and not (key == UPDATED_AT_FIELD and table in updated_fields)]
             if bad:
                 raise ValueError(f"{TABLE_NAMES[table]} 缺少字段或字段类型不符：" + "、".join(bad))
             field_maps[table] = mapping
@@ -125,8 +146,10 @@ def sync_plan(client, plan, config, progress=None):
             current = existing.get("fields", {}) if existing else {}
             action = {"table": TABLE_NAMES[table], "date": day}
             # 更新时间使用源快照时间，禁止较旧离线文件回滚较新数据。
-            previous_time = current.get("更新时间")
-            if previous_time is not None and int(previous_time) > plan["source_timestamp_ms"]:
+            update_name, update_type = updated_fields[table]
+            source_timezone = plan.get("source_timezone", config["feishu"]["sync"]["source_timezone"])
+            previous_time = timestamp_ms(current.get(update_name), source_timezone)
+            if previous_time is not None and previous_time > plan["source_timestamp_ms"]:
                 action["action"] = "skip_older_snapshot"
                 report["actions"].append(action)
                 progress(report)
@@ -142,7 +165,10 @@ def sync_plan(client, plan, config, progress=None):
                 old_note = scalar(current.get("数据说明"))
                 if existing and row["historical"] and old_note and note not in old_note:
                     note = old_note + "；" + note
-                fields.update({"更新时间": plan["source_timestamp_ms"], "数据说明": note})
+                update_value = plan["source_timestamp_ms"]
+                if update_type == 1:
+                    update_value = datetime.fromtimestamp(update_value / 1000, ZoneInfo(source_timezone)).isoformat(timespec="milliseconds")
+                fields.update({update_name: update_value, "数据说明": note})
                 action.update({"action": "update" if existing else "create", "changed_fields": list(delta), "status": "pending"})
                 report["actions"].append(action)
                 progress(report)

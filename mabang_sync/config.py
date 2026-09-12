@@ -30,6 +30,8 @@ def load_config(path: Path) -> dict:
     for key in ("app_id", "app_secret"):
         config["feishu"][key] = os.getenv(f"FEISHU_{key.upper()}", config["feishu"][key])
     ZoneInfo(config["feishu"]["sync"]["timezone"])
+    ZoneInfo(config["feishu"]["sync"]["business_timezone"])
+    ZoneInfo(config["feishu"]["sync"]["source_timezone"])
     if config["feishu"]["timeout"] <= 0:
         raise ValueError("feishu.timeout 必须大于零")
     for key in ("username", "password"):

@@ -91,6 +91,33 @@ class SchedulerTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     load_config(config)
 
+    def test_now_runs_immediately_then_keeps_daily_schedule(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.config["schedule"].update(state_dir=tmp, times=["09:55"])
+            moment = [datetime(2026, 9, 11, 9, 54, 59, tzinfo=BEIJING)]
+            runner = Mock(return_value=0)
+
+            def sleep(seconds):
+                if runner.call_count == 2:
+                    raise KeyboardInterrupt
+                moment[0] += timedelta(seconds=seconds)
+
+            with patch("mabang_sync.scheduler.load_config", return_value=self.config):
+                run_scheduler(Path(tmp) / "config.toml", runner, lambda: moment[0], sleep, run_now=True)
+            self.assertEqual(runner.call_count, 2)
+            self.assertTrue((Path(tmp) / "immediate_state.json").exists())
+            self.assertIn("09:55", json.loads((Path(tmp) / "state.json").read_text())["last_slot"])
+
+    def test_now_failure_at_scheduled_instant_does_not_run_twice(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.config["schedule"].update(state_dir=tmp, times=["09:55"])
+            moment = datetime(2026, 9, 11, 9, 55, tzinfo=BEIJING)
+            runner = Mock(side_effect=RuntimeError("failure"))
+            with patch("mabang_sync.scheduler.load_config", return_value=self.config):
+                run_scheduler(Path(tmp) / "config.toml", runner, lambda: moment, Mock(side_effect=KeyboardInterrupt), run_now=True)
+            runner.assert_called_once()
+            self.assertFalse((Path(tmp) / "state.json").exists())
+
 
 if __name__ == "__main__":
     unittest.main()

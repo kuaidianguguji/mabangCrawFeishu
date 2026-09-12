@@ -25,6 +25,10 @@ login_link_xpath = '//a[@id="login-btn"]'
 username_xpath = '//input[@id="account"]'
 password_xpath = '//input[@id="password"]'
 submit_xpath = '//input[@id="account-btn"]'
+timezone_text = "UTC-3"
+timezone_button_xpath = '//section//div[@data-filter="timezone"]//button'
+timezone_option_xpath = '//section//div[@role="listbox"]//button[contains(@title, "UTC-3")]'
+timezone_list_xpath = '//section//div[@role="listbox"]'
 
 [timing]
 element_timeout = 15
@@ -64,6 +68,8 @@ compare_yesterday = false
 correct_day_before_yesterday = false
 backfill_sales_trend = false
 timezone = "Asia/Shanghai"
+business_timezone = "Asia/Shanghai" # 飞书“日期”按北京时间填写
+source_timezone = "Etc/GMT+3" # 看板实际统计时区：固定 UTC-3
 currency = "CNY"
 # 请在马帮看板固定筛选；此标签仅记录口径，不会替你切换看板。
 scope = "全平台"

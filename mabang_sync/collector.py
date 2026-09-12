@@ -2,6 +2,7 @@ import json
 import logging
 import time
 from urllib.parse import urlsplit
+from .dashboard import trigger_dashboard, verify_timezone, stop_listener
 
 MODULES = ("sales-overview", "hourly", "amount-category", "manager-refund",
            "hot-product", "statistics", "order-metrics", "shop-ranking")
@@ -18,22 +19,22 @@ def validate_response(body):
 
 
 def collect(tab, config, save_raw):
-    """先监听再导航；每个模块保留本轮运行的首个有效响应。"""
+    """确认 UTC-3 后采集；丢弃时区未确认批次，重试补齐有效模块。"""
     m, t = config["mabang"], config["timing"]
     targets = {m["api_base"].rstrip("/") + "/" + name: name for name in MODULES}
     captured, errors = {}, {}
     for attempt in range(t["retry_count"] + 1):
-        tab.listen.start(list(targets))
+        batch = {}
         try:
-            tab.get(m["dashboard_url"], timeout=t["page_timeout"])
+            trigger_dashboard(tab, config, list(targets))
             deadline = time.monotonic() + t["capture_timeout"]
-            while len(captured) < len(MODULES) and time.monotonic() < deadline:
+            while len(captured) + len(batch) < len(MODULES) and time.monotonic() < deadline:
                 packet = tab.listen.wait(timeout=min(1, max(0.01, deadline - time.monotonic())), raise_err=False)
                 if not packet:
                     continue
                 parsed = urlsplit(packet.url)
                 name = targets.get(f"{parsed.scheme}://{parsed.netloc}{parsed.path}")
-                if not name or name in captured:
+                if not name or name in captured or name in batch:
                     continue
                 try:
                     if packet.is_failed or packet.response.status != 200:
@@ -42,15 +43,18 @@ def collect(tab, config, save_raw):
                 except (ValueError, TypeError) as exc:
                     errors[name] = str(exc)
                     continue
+                batch[name] = body
+                errors.pop(name, None)
+                logging.info("已捕获 %s (%s/8)", name, len(captured) + len(batch))
+            verify_timezone(tab, config)
+            for name, body in batch.items():
                 save_raw(name, body)
                 captured[name] = body
-                errors.pop(name, None)
-                logging.info("已捕获 %s (%s/8)", name, len(captured))
         except Exception as exc:
             # 仅记录异常类型，第三方异常可能含 URL 或敏感内容。
             errors["navigation"] = type(exc).__name__
         finally:
-            tab.listen.stop()
+            stop_listener(tab)
         if len(captured) == len(MODULES):
             errors.pop("navigation", None)
             break

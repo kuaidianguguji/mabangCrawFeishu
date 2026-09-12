@@ -4,7 +4,7 @@
 
 ## 字段调整
 
-完整字段名和类型见 [feishu_schema.json](feishu_schema.json)。类型编号：1=文本，2=数字，5=日期。所有六表增加「更新时间」（日期）和「数据说明」（文本）。日期列必须为日期类型，不能为公式或文本。金额字段保留原精度；比例是数字字段，建议选择百分比显示，例如 0.36 显示为 36%。
+完整字段名和类型见 [feishu_schema.json](feishu_schema.json)。类型编号：1=文本，2=数字，5=日期。所有六表使用「更新时间(巴西)」（日期，亦兼容文本）和「数据说明」（文本）。未更名的「更新时间」也可兼容。日期列必须为日期类型，不能为公式或文本。金额字段保留原精度；比例是数字字段，建议选择百分比显示，例如 0.36 显示为 36%。
 
 - 每日商品榜单：销售额榜 incomeRanking 前五名；每个位置的商品名、销售额、销量取同一对象，不混用 quantityRanking。其余商品保留在本地清洗结果。
 - 每日店铺表现：按接口 rank 取前五名；skuNum 写入「销量原值」。
@@ -29,6 +29,8 @@ compare_yesterday = false
 correct_day_before_yesterday = false
 backfill_sales_trend = false
 timezone = "Asia/Shanghai"
+business_timezone = "Asia/Shanghai" # 飞书行日期按北京时间
+source_timezone = "Etc/GMT+3" # 看板数据为 UTC-3
 currency = "CNY"
 scope = "全平台"
 ```
@@ -62,7 +64,7 @@ python -m mabang_sync feishu --input output/20260911_155842_7ce54843
 python -m mabang_sync feishu --input output/20260911_155842_7ce54843 --write
 ```
 
-输出 feishu_sync_report.json，记录新增、更新、无变化、旧快照跳过及失败状态。离线运行日期从源 currentTimestamp 按配置时区推导，不使用执行命令的当天；如源看板统计日不同，可以显式加 --date 2026-09-11。跨日响应会拒绝生成计划。
+输出 feishu_sync_report.json，记录新增、更新、无变化、旧快照跳过及失败状态。离线运行日期从源 currentTimestamp 按 business_timezone（北京时间）推导，不使用执行命令的当天；飞书日期值仍按 timezone 编码。旧 UTC+8 原始目录重新导入时可显式加 --date 2026-09-11 指定原业务日期。跨统计日响应会拒绝生成计划。
 
 需要今后 collect 自动上传，将 feishu.enabled 设为 true：
 
@@ -74,7 +76,7 @@ enabled=false 时 collect 仍生成写入预览，但不访问飞书。显式 --
 
 ## 更新边界
 
-按日期查找，有则更新、无则新增；同一表同日期重复记录会停止写入，需先合并。更新只传变化字段，不抹掉历史其他指标。数值 304、304.0、"304.00" 视为相同；未变化时不刷新更新时间。更新时间记录源批次最新响应时间，不代表所有历史字段均已得到验证。
+按日期查找，有则更新、无则新增；同一表同日期重复记录会停止写入，需先合并。更新只传变化字段，不抹掉历史其他指标。数值 304、304.0、"304.00" 视为相同；未变化时不刷新更新时间。「更新时间(巴西)」记录源批次最新响应时间，不代表所有历史字段均已得到验证。
 
 正常返回少于五名时，旧排名多余位置会清空；结构错误时跳过该表并记录错误，不清空旧表。未知平台留在本地，不把未返回平台填零。不同表不保证原子写入，失败后依据报告重跑；每次都会重新读取记录。写入超时结果未知时不自动重试创建，避免重复新增。
 
@@ -85,3 +87,7 @@ enabled=false 时 collect 仍生成写入预览，但不访问飞书。显式 --
 接口参考：[更新记录](https://open.feishu.cn/document/server-docs/docs/bitable-v1/app-table-record/update)、[列出字段](https://open.feishu.cn/document/server-docs/docs/bitable-v1/app-table-field/list)、[自建应用访问凭证](https://open.feishu.cn/document/server-docs/authentication-management/access-token/tenant_access_token_internal)。
 
 当前经营汇总中已有的毛利率、退款率及变化比例公式保留。飞书公式与马帮可能采用不同的分母或比较周期，请以「马帮-…」列核对原接口值。公式结果不会被上传程序覆盖。
+
+飞书行日期按北京时间标记；看板实际统计日期按 source_timezone（UTC-3）。例如北京 9月12日09:55 采集时，行日期=9月12日，源 today 日期=9月11日，昨日纠正行=9月11日。历史趋势回补按本批次行日期与源日期的差值平移，避免与昨日纠正写入不同的行；原始 JSON 的日期不改。
+
+「更新时间(巴西)」优先于旧名称。文本字段写入例如 2026-09-11T22:55:00.000-03:00；日期字段写入同一真实时刻的毫秒时间戳，显示时区取决于飞书设置。字段改名本身不会改变日期类型的显示时区。

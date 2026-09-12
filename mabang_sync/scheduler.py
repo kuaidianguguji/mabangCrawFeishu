@@ -61,7 +61,7 @@ def run_slot(slot, state_path, config_path, runner, clock=now_beijing):
     return state
 
 
-def run_scheduler(config_path, runner, clock=now_beijing, sleep=time.sleep):
+def run_scheduler(config_path, runner, clock=now_beijing, sleep=time.sleep, run_now=False):
     config_path = Path(config_path).resolve()
     config = load_config(config_path)
     if not config["browser"]["close_on_exit"]:
@@ -90,7 +90,11 @@ def run_scheduler(config_path, runner, clock=now_beijing, sleep=time.sleep):
         if state.get("status") == "running":
             logging.warning("上次任务可能被强制中断；不自动重跑该时刻，请检查输出报告")
         logging.info("常驻模式启动；北京时间每日 %s；按 Ctrl+C 停止", "、".join(sorted(schedule["times"])))
-        target = next_run(clock(), schedule["times"], last_slot)
+        if run_now:
+            logging.info("--now：先立即执行一次，随后继续定时运行")
+            # 独立记录手动触发，不覆盖每日定时的防重状态。
+            run_slot(clock(), folder / "immediate_state.json", config_path, runner, clock)
+        target = next_run(clock() + (timedelta(microseconds=1) if run_now else timedelta()), schedule["times"], last_slot)
         logging.info("下次执行：%s（北京时间）", target.strftime("%Y-%m-%d %H:%M:%S"))
         while True:
             now = clock().astimezone(BEIJING)

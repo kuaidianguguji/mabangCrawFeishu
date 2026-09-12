@@ -4,12 +4,21 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="2a0b6714-2e54-465f-b2b3-7e605716a0c8" name="更改" comment="write feishu test ok">
+    <list default="true" id="2a0b6714-2e54-465f-b2b3-7e605716a0c8" name="更改" comment="add longrun">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/config.example.toml" beforeDir="false" afterPath="$PROJECT_DIR$/config.example.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/feishu_schema.json" beforeDir="false" afterPath="$PROJECT_DIR$/docs/feishu_schema.json" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/docs/feishu_sync.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/feishu_sync.md" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/mabang_sync/__main__.py" beforeDir="false" afterPath="$PROJECT_DIR$/mabang_sync/__main__.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/mabang_sync/collector.py" beforeDir="false" afterPath="$PROJECT_DIR$/mabang_sync/collector.py" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/mabang_sync/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/mabang_sync/config.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/requirements.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/mabang_sync/feishu.py" beforeDir="false" afterPath="$PROJECT_DIR$/mabang_sync/feishu.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/mabang_sync/feishu_plan.py" beforeDir="false" afterPath="$PROJECT_DIR$/mabang_sync/feishu_plan.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/mabang_sync/scheduler.py" beforeDir="false" afterPath="$PROJECT_DIR$/mabang_sync/scheduler.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_feishu.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_feishu.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_pipeline.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_pipeline.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/tests/test_scheduler.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_scheduler.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -42,6 +51,7 @@
   <component name="PropertiesComponent"><![CDATA[{
   "keyToString": {
     "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "Python.scheduler.executor": "Run",
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "RunOnceActivity.git.unshallow": "true",
     "git-widget-placeholder": "master"
@@ -99,7 +109,15 @@
       <option name="project" value="LOCAL" />
       <updated>1789122303170</updated>
     </task>
-    <option name="localTasksCounter" value="5" />
+    <task id="LOCAL-00005" summary="add longrun">
+      <option name="closed" value="true" />
+      <created>1789123151341</created>
+      <option name="number" value="00005" />
+      <option name="presentableId" value="LOCAL-00005" />
+      <option name="project" value="LOCAL" />
+      <updated>1789123151341</updated>
+    </task>
+    <option name="localTasksCounter" value="6" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -129,6 +147,7 @@
     <MESSAGE value="first commit" />
     <MESSAGE value="first test ok" />
     <MESSAGE value="write feishu test ok" />
-    <option name="LAST_COMMIT_MESSAGE" value="write feishu test ok" />
+    <MESSAGE value="add longrun" />
+    <option name="LAST_COMMIT_MESSAGE" value="add longrun" />
   </component>
 </project>

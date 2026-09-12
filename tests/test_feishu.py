@@ -69,6 +69,23 @@ class FeishuTests(unittest.TestCase):
         self.assertEqual(row["fields"]["排名1-商品名"], "商品一")
         self.assertIsNone(row["fields"]["排名5-商品名"])
 
+    def test_beijing_row_date_and_brazil_source_date_are_separate(self):
+        stamp = int(datetime(2026, 9, 12, 9, 55, tzinfo=ZoneInfo("Asia/Shanghai")).timestamp() * 1000)
+        for body in self.raw.values():
+            body["currentTimestamp"] = stamp
+        self.config["feishu"]["sync"]["compare_yesterday"] = True
+        plan = build_plan(self.raw, self.config)
+        self.assertEqual(plan["business_date"], "2026-09-12")
+        self.assertEqual(plan["source_business_date"], "2026-09-11")
+        self.assertEqual(plan["timezone"], "Asia/Shanghai")
+        self.assertEqual({r["date"] for r in plan["records"] if r["historical"]}, {"2026-09-11"})
+        self.config["feishu"]["sync"]["backfill_sales_trend"] = True
+        plan = build_plan(self.raw, self.config)
+        rows = [r for r in plan["records"] if r["historical"] and r["table"] == "summary"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["date"], "2026-09-11")
+        self.assertEqual(rows[0]["fields"], {"销售额": 26039, "订单数": 164})
+
     def test_yesterday_switch_and_source_priority(self):
         self.config["feishu"]["sync"].update(compare_yesterday=True, backfill_sales_trend=True)
         plan = build_plan(self.raw, self.config)
@@ -101,6 +118,8 @@ class FeishuTests(unittest.TestCase):
         plan = build_plan(self.raw, self.config)
         sync_plan(client, plan, self.config)
         self.assertEqual(len(client.writes), 6)
+        self.assertIn("更新时间(巴西)", client.writes[0][2])
+        self.assertNotIn("更新时间", client.writes[0][2])
         client.writes.clear()
         sync_plan(client, plan, self.config)
         self.assertEqual(client.writes, [])
@@ -170,6 +189,29 @@ class FeishuTests(unittest.TestCase):
         self.assertNotIn("退款率", summary)
         self.assertEqual(summary["马帮-退款率"], 0.36)
         client.writes.clear()
+        sync_plan(client, plan, self.config)
+        self.assertEqual(client.writes, [])
+
+    def test_legacy_text_update_field_gets_brazil_time(self):
+        client = FakeClient()
+        original = client.fields
+
+        def fields(table):
+            result = original(table)
+            for field in result:
+                if field["field_name"] == "更新时间(巴西)":
+                    field.update(field_name="更新时间", type=1)
+            return result
+
+        client.fields = fields
+        plan = build_plan(self.raw, self.config)
+        sync_plan(client, plan, self.config)
+        value = client.data["shops"][0]["fields"]["更新时间"]
+        self.assertTrue(value.endswith("-03:00"))
+        self.assertIn("04:00:00", value)
+        self.assertEqual(int(datetime.fromisoformat(value).timestamp() * 1000), STAMP)
+        client.writes.clear()
+        plan["source_timestamp_ms"] -= 1000
         sync_plan(client, plan, self.config)
         self.assertEqual(client.writes, [])
 

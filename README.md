@@ -16,7 +16,20 @@ Copy-Item config.example.toml config.toml
 .\.venv\Scripts\python.exe -m mabang_sync collect --config config.toml
 ```
 
-也可用 `MABANG_USERNAME` / `MABANG_PASSWORD` 环境变量覆盖账号配置。遇到验证码，在登录等待时间内手动完成。登录只提交一次，防止密码错误时持续尝试。首页存在 `//a[@id="login-btn"]` 时点击登录入口；存在 `//div[@id="mb-user"]` 即确认登录成功（`logged_in_xpath`），不依赖 URL。两个标志都不存在时继续等待，不将按钮消失当成登录成功。确认后先启动监听，再跳转数据看板。`logged_in_url_pattern` 仅保留兼容旧配置，不再参与判断。当前代码按所给 XPath 操作同一标签页；若真实网站改为新标签页/iframe，需要据实际页面调整登录适配器。
+也可用 `MABANG_USERNAME` / `MABANG_PASSWORD` 环境变量覆盖账号配置。遇到验证码，在登录等待时间内手动完成。登录只提交一次，防止密码错误时持续尝试。首页存在 `//a[@id="login-btn"]` 时点击登录入口；存在 `//div[@id="mb-user"]` 即确认登录成功（`logged_in_xpath`），不依赖 URL。两个标志都不存在时继续等待，不将按钮消失当成登录成功。确认登录后先启动监听，再进入数据看板，按下面的 UTC-3 流程处理响应。`logged_in_url_pattern` 仅保留兼容旧配置，不再参与判断。当前代码按所给 XPath 操作同一标签页；若真实网站改为新标签页/iframe，需要据实际页面调整登录适配器。
+
+## 看板时区：巴西 UTC-3
+
+每轮进入看板后检查 `//section//div[@data-filter="timezone"]//button` 的文字：
+
+- 包含 UTC-3：保留进入页面前启动的监听，直接使用初次加载响应，不刷新页面。
+- 不包含 UTC-3：取消首次监听并丢弃其响应，开启新监听，点击时区按钮，滚动下拉列表并选择 `//section//div[@role="listbox"]//button[contains(@title, "UTC-3")]`。
+
+每轮都先启动监听再进入看板；时区按钮的文字如果暂时是 `cbt,mla,mlb,mlu,br` 等内部编码，程序会继续按轮询间隔重新读取，直到同一 XPath 的内容出现 `UTC` 后才决定分支。只有首次检查不是 UTC-3 时才弃用初次响应。选项已在 DOM 但位于滚动区域外时滚动到该元素；选项未加载时向下滚动列表寻找。进入/切换后以及本轮响应保存前均确认按钮含 UTC-3，失败则丢弃本轮响应并按配置重试。选择器与匹配文字位于 config.toml 的 mabang 配置节。
+
+看板读取 UTC-3 数据，但按用户约定，飞书「日期」使用北京时间的采集日期。`feishu.sync.business_timezone="Asia/Shanghai"` 决定行日期，`timezone="Asia/Shanghai"` 决定飞书日期编码/查询；`source_timezone="Etc/GMT+3"` 记录看板实际统计时区。例如北京时间 9月12日09:55 采集的数据，飞书日期写 9月12日，实际看板 today 为巴西 9月11日；yesterday 校正北京标签 9月11日。历史趋势回补也按该批次的日期差平移标签，以免与昨日校正错行；raw/cleaned 中原始统计日期保持不变。plan 中同时保存 business_date 和 source_business_date 供核对。重新导入旧口径目录时请先核对日期，必要时用 --date 明确行日期。
+
+更新字段统一采用「更新时间(巴西)」，同时兼容尚未改名的「更新时间」。若字段为文本，写入带 -03:00 的 ISO 巴西时间；若字段为日期，写入标准毫秒时间戳，展示时区由飞书的日期显示设置决定，程序不会通过减去 11 小时伪造时间戳。优先匹配新名称，不会自动删除旧列。
 
 ## 常驻运行：每天北京时间 09:55
 
@@ -37,6 +50,14 @@ python -m mabang_sync schedule --config config.toml
 ```
 
 启动后会显示下一次执行时刻，每天北京时间（Asia/Shanghai，UTC+8）到点执行一次完整采集、清洗和飞书同步，不受 Windows 当前时区影响。飞书是否上传仍由 `feishu.enabled` 控制。`collect` 命令仍只运行一次。
+
+立即执行一次，然后保持常驻：
+
+```powershell
+python -m mabang_sync schedule --now
+```
+
+`--now` 受同一个常驻进程锁保护；每次显式启动都会执行一次，结果保存到 `immediate_state.json`，不覆盖每日定时的防重状态。执行成功或失败后均继续等待下一个尚未到达的配置时刻；立即运行期间错过的定时时刻不补跑。仅想立即执行一次并退出，仍使用 `python -m mabang_sync collect`。
 
 - 可配置多个时刻，例如 `times = ["09:55", "18:00"]`；必须为两位 HH:MM，不可重复。
 - 修改每日时间、轮询间隔或状态目录后，需要 Ctrl+C 停止并重新启动。账号、飞书开关等任务配置在每次触发前重新读取。
