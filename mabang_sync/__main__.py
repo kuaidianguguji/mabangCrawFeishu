@@ -7,6 +7,7 @@ from .config import load_config
 from .storage import FileSink, write_json
 from .feishu_plan import build_plan
 from .diagnostics import FeishuError, safe_text
+from .retry import run_with_retry, retryable
 
 
 def read_responses(folder):
@@ -30,7 +31,7 @@ def export_feishu(captured, config, folder, business_date=None, write=False, che
     except Exception as exc:
         message = safe_text(exc, config)
         logging.error("飞书流程未完成：%s；详细日志=%s", message, (folder / "feishu.log").resolve())
-        raise FeishuError(message) from None
+        raise FeishuError(message, retryable=retryable(exc)) from None
     finally:
         logging.getLogger().removeHandler(handler)
         handler.close()
@@ -54,8 +55,11 @@ def _export_feishu(captured, config, folder, business_date, write, check_only):
         except FeishuError as exc:
             write_json(report_path, {"complete": False, "phase": "configuration", "actions": [], "error": safe_text(exc, config)})
             raise
-        result = sync_plan(client, plan, config,
-                           progress=lambda value: write_json(report_path, value), check_only=check_only)
+        try:
+            result = sync_plan(client, plan, config,
+                               progress=lambda value: write_json(report_path, value), check_only=check_only)
+        finally:
+            client.session.close()
         counts = {}
         for action in result["actions"]:
             kind = action["action"]
@@ -67,14 +71,54 @@ def _export_feishu(captured, config, folder, business_date, write, check_only):
 
 
 def run_collection(config):
-    """一次采集任务，供手动命令与常驻调度共用。"""
+    """获取前整体重试重建浏览器；获取后整体重试固定本批 JSON。"""
     from .browser import open_browser, ensure_login
-    browser = None
-    try:
+    from .login_state import restore_login_state, save_login_state
+
+    def acquire():
+        browser, tab, restore_script = None, None, None
+        success = False
         sink = FileSink(config["output"]["directory"])
-        browser, tab = open_browser(config)
-        ensure_login(tab, config)
-        captured, errors = collect(tab, config, sink.save_raw)
+        logging.info("本次采集尝试输出目录：%s", sink.path.resolve())
+        try:
+            browser, tab = open_browser(config)
+            restore_script = restore_login_state(tab, config)
+            ensure_login(tab, config)
+            if restore_script:
+                tab.remove_init_js(restore_script)
+                restore_script = None
+            save_login_state(tab, config)
+            # 完整 JSON 先保留在内存；后续落盘失败归入获取后重试，不能重新采集。
+            captured, errors = collect(tab, config, lambda name, body: None)
+            if len(captured) != len(MODULES):
+                for name, body in captured.items():
+                    sink.save_raw(name, body)
+                sink.finish(captured, errors)
+                raise RuntimeError("八个接口尚未收齐；失败轮次已保留，准备获取数据前整体重试")
+            success = True
+            return sink, captured, errors
+        except Exception as exc:
+            write_json(sink.path / "capture_failure.json", {"stage": "before_capture", "error_type": type(exc).__name__})
+            raise
+        finally:
+            if tab is not None:
+                if restore_script:
+                    try:
+                        tab.remove_init_js(restore_script)
+                    except Exception:
+                        pass
+                save_login_state(tab, config)
+            if browser is not None and (not success or config["browser"]["close_on_exit"]):
+                try:
+                    browser.quit()
+                except Exception as exc:
+                    logging.warning("关闭本次专用浏览器失败：%s", type(exc).__name__)
+
+    sink, captured, errors = run_with_retry(config, "before_capture", acquire, "获取数据前整体流程")
+
+    def process():
+        for name, body in captured.items():
+            sink.save_raw(name, body)
         report = sink.finish(captured, errors)
         feishu_complete = export_feishu(captured, config, sink.path, write=config["feishu"]["enabled"])
         if not feishu_complete:
@@ -82,9 +126,7 @@ def run_collection(config):
         logging.info("输出目录: %s", sink.path.resolve())
         logging.info("接口完整: %s；清洗完整: %s", report["capture_complete"], report["cleaning_complete"])
         return 0 if report["cleaning_complete"] and feishu_complete else 2
-    finally:
-        if browser is not None and config["browser"]["close_on_exit"]:
-            browser.quit()
+    return run_with_retry(config, "after_capture", process, "获取数据后整体流程（复用已获取 JSON）")
 
 
 def main():
@@ -120,7 +162,9 @@ def main():
             if errors:
                 logging.warning("部分源数据缺失或无效: %s", ", ".join(errors))
             target = folder.parent if folder.name == "raw" else folder
-            complete = export_feishu(captured, config, target, args.date, args.write, args.check)
+            complete = run_with_retry(config, "after_capture",
+                                      lambda: export_feishu(captured, config, target, args.date, args.write, args.check),
+                                      "离线数据后续流程")
             print(f"飞书{'同步' if args.write else '检查' if args.check else '预览'}完成，完整: {complete}；输出: {target.resolve()}")
             return 0 if complete else 2
         if args.command == "clean":

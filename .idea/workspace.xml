@@ -4,14 +4,15 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="2a0b6714-2e54-465f-b2b3-7e605716a0c8" name="更改" comment="fix craw data">
+    <list default="true" id="2a0b6714-2e54-465f-b2b3-7e605716a0c8" name="更改" comment="fix feishu update">
+      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/docs/feishu_sync.md" beforeDir="false" afterPath="$PROJECT_DIR$/docs/feishu_sync.md" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mabang_sync/__main__.py" beforeDir="false" afterPath="$PROJECT_DIR$/mabang_sync/__main__.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mabang_sync/feishu.py" beforeDir="false" afterPath="$PROJECT_DIR$/mabang_sync/feishu.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/mabang_sync/scheduler.py" beforeDir="false" afterPath="$PROJECT_DIR$/mabang_sync/scheduler.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/test_feishu.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_feishu.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/tests/test_scheduler.py" beforeDir="false" afterPath="$PROJECT_DIR$/tests/test_scheduler.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/README.md" beforeDir="false" afterPath="$PROJECT_DIR$/README.md" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/config.example.toml" beforeDir="false" afterPath="$PROJECT_DIR$/config.example.toml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/mabang_sync/browser.py" beforeDir="false" afterPath="$PROJECT_DIR$/mabang_sync/browser.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/mabang_sync/config.py" beforeDir="false" afterPath="$PROJECT_DIR$/mabang_sync/config.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/mabang_sync/dashboard.py" beforeDir="false" afterPath="$PROJECT_DIR$/mabang_sync/dashboard.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/requirements.txt" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -21,40 +22,41 @@
   <component name="Git.Settings">
     <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
   </component>
-  <component name="GitHubPullRequestSearchHistory"><![CDATA[{
-  "lastFilter": {
-    "state": "OPEN",
-    "assignee": "kuaidianguguji"
+  <component name="GitHubPullRequestSearchHistory">{
+  &quot;lastFilter&quot;: {
+    &quot;state&quot;: &quot;OPEN&quot;,
+    &quot;assignee&quot;: &quot;kuaidianguguji&quot;
   }
-}]]></component>
-  <component name="GithubPullRequestsUISettings"><![CDATA[{
-  "selectedUrlAndAccountId": {
-    "url": "https://github.com/kuaidianguguji/mabangCrawFeishu.git",
-    "accountId": "4e8341a3-81b0-40eb-acd8-39ec0f7c34e0"
+}</component>
+  <component name="GithubPullRequestsUISettings">{
+  &quot;selectedUrlAndAccountId&quot;: {
+    &quot;url&quot;: &quot;https://github.com/kuaidianguguji/mabangCrawFeishu.git&quot;,
+    &quot;accountId&quot;: &quot;4e8341a3-81b0-40eb-acd8-39ec0f7c34e0&quot;
   }
-}]]></component>
-  <component name="ProjectColorInfo"><![CDATA[{
-  "associatedIndex": 5
-}]]></component>
+}</component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 5
+}</component>
   <component name="ProjectId" id="3JAAfM8mNjO825G9eVTJpKRb7kj" />
   <component name="ProjectViewState">
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent"><![CDATA[{
-  "keyToString": {
-    "ModuleVcsDetector.initialDetectionPerformed": "true",
-    "Python.scheduler.executor": "Run",
-    "RunOnceActivity.ShowReadmeOnStart": "true",
-    "RunOnceActivity.git.unshallow": "true",
-    "git-widget-placeholder": "master"
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;ModuleVcsDetector.initialDetectionPerformed&quot;: &quot;true&quot;,
+    &quot;Python.scheduler.executor&quot;: &quot;Run&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;master&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable&quot;
   },
-  "keyToStringList": {
-    "ChangesTree.GroupingKeys": [
-      "repository"
+  &quot;keyToStringList&quot;: {
+    &quot;ChangesTree.GroupingKeys&quot;: [
+      &quot;repository&quot;
     ]
   }
-}]]></component>
+}</component>
   <component name="SharedIndexes">
     <attachedChunks>
       <set>
@@ -118,7 +120,15 @@
       <option name="project" value="LOCAL" />
       <updated>1789183082668</updated>
     </task>
-    <option name="localTasksCounter" value="7" />
+    <task id="LOCAL-00007" summary="fix feishu update">
+      <option name="closed" value="true" />
+      <created>1789184773937</created>
+      <option name="number" value="00007" />
+      <option name="presentableId" value="LOCAL-00007" />
+      <option name="project" value="LOCAL" />
+      <updated>1789184773937</updated>
+    </task>
+    <option name="localTasksCounter" value="8" />
     <servers />
   </component>
   <component name="Vcs.Log.Tabs.Properties">
@@ -150,6 +160,7 @@
     <MESSAGE value="write feishu test ok" />
     <MESSAGE value="add longrun" />
     <MESSAGE value="fix craw data" />
-    <option name="LAST_COMMIT_MESSAGE" value="fix craw data" />
+    <MESSAGE value="fix feishu update" />
+    <option name="LAST_COMMIT_MESSAGE" value="fix feishu update" />
   </component>
 </project>

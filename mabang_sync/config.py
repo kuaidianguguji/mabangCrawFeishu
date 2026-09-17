@@ -2,6 +2,7 @@ from pathlib import Path
 import os
 import tomllib
 import re
+import math
 from zoneinfo import ZoneInfo
 
 
@@ -36,8 +37,16 @@ def load_config(path: Path) -> dict:
         raise ValueError("feishu.timeout 必须大于零")
     for key in ("username", "password"):
         config["account"][key] = os.getenv(f"MABANG_{key.upper()}", config["account"][key])
-    for section, key in (("browser", "profile_dir"), ("output", "directory"), ("schedule", "state_dir")):
+    for section, key in (("browser", "profile_dir"), ("browser", "login_info_dir"), ("output", "directory"), ("schedule", "state_dir")):
         config[section][key] = str((path.parent / config[section][key]).resolve())
+    if config["browser"]["legacy_profile_dir"]:
+        config["browser"]["legacy_profile_dir"] = str((path.parent / config["browser"]["legacy_profile_dir"]).resolve())
+    for stage, policy in config["retry"].items():
+        if type(policy["count"]) is not int or policy["count"] < 0:
+            raise ValueError(f"retry.{stage}.count 必须为非负整数")
+        value = policy["interval"]
+        if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
+            raise ValueError(f"retry.{stage}.interval 必须为有限非负秒数")
     for key, value in config["timing"].items():
         if isinstance(value, bool) or not isinstance(value, (int, float)) or value < 0:
             raise ValueError(f"timing.{key} 必须为非负数")

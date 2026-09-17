@@ -1,7 +1,8 @@
 import logging
 import socket
 import time
-from pathlib import Path
+from .login_state import prepare_profile
+from .retry import load_page, click_button, PermanentError
 
 
 def open_browser(config):
@@ -12,7 +13,7 @@ def open_browser(config):
     with socket.socket() as probe:
         if probe.connect_ex(("127.0.0.1", b["port"])) == 0:
             raise RuntimeError("浏览器端口已占用，请关闭上次专用浏览器或修改端口")
-    Path(b["profile_dir"]).mkdir(parents=True, exist_ok=True)
+    prepare_profile(config)
     options = ChromiumOptions(read_file=False)
     options.set_local_port(b["port"])
     options.set_user_data_path(b["profile_dir"])
@@ -25,12 +26,16 @@ def open_browser(config):
     if b["user_agent"]:
         options.set_user_agent(b["user_agent"])
     browser = Chromium(options)
-    return browser, browser.latest_tab
+    try:
+        return browser, browser.latest_tab
+    except Exception:
+        browser.quit()
+        raise
 
 
 def ensure_login(tab, config):
     m, t = config["mabang"], config["timing"]
-    tab.get(m["home_url"], timeout=t["page_timeout"])
+    load_page(tab, m["home_url"], config)
     deadline = time.monotonic() + t["login_timeout"]
     submitted = False
     clicked = False
@@ -44,7 +49,9 @@ def ensure_login(tab, config):
         if not clicked and link:
             stage = "等待首页登录按钮可见"
             if link.states.is_displayed:
-                link.click()
+                click_button(tab, m["login_link_xpath"], config,
+                             satisfied=lambda: bool(tab.ele("xpath:" + m["username_xpath"], timeout=0.1)
+                                                    and tab.ele("xpath:" + m["username_xpath"], timeout=0.1).states.is_displayed))
                 clicked = True
                 stage = "等待登录弹窗的账号、密码及提交按钮可见"
                 logging.info("已点击首页登录按钮，等待登录弹窗")
@@ -61,10 +68,11 @@ def ensure_login(tab, config):
             else:
                 account = config["account"]
                 if not account["username"] or not account["password"]:
-                    raise RuntimeError("当前未登录，请在 config.toml 或环境变量中配置用户名和密码")
+                    raise PermanentError("当前未登录，请在 config.toml 或环境变量中配置用户名和密码")
                 elements["username_xpath"].input(account["username"], clear=True)
                 elements["password_xpath"].input(account["password"], clear=True)
-                elements["submit_xpath"].click()
+                click_button(tab, m["submit_xpath"], config,
+                             satisfied=lambda: bool(tab.ele("xpath:" + m["logged_in_xpath"], timeout=0.1)))
                 submitted = True
                 stage = "已提交登录，等待首页；检查验证码或登录错误提示"
                 logging.info("已提交登录；如有验证码，请在浏览器中完成")

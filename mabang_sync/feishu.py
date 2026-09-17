@@ -6,12 +6,17 @@ import requests
 import logging
 from time import monotonic
 from difflib import get_close_matches
+import hashlib
+import json
+from uuid import UUID
+from .retry import run_with_retry
 from .feishu_plan import TABLE_NAMES, table_schema, UPDATED_AT_FIELD
 from .diagnostics import FeishuError, safe_text
 
 
 class FeishuClient:
     def __init__(self, config):
+        self.retry_config = config
         self.config = config["feishu"]
         for key in ("app_id", "app_secret", "app_token"):
             if not self.config[key]:
@@ -24,6 +29,10 @@ class FeishuClient:
         self.request_number = 0
 
     def request(self, method, path, **kwargs):
+        return run_with_retry(self.retry_config, "feishu",
+                              lambda: self._request_once(method, path, **kwargs), "飞书请求 " + method)
+
+    def _request_once(self, method, path, **kwargs):
         self.request_number += 1
         request_number = self.request_number
         endpoint = safe_text(path, self.config, (self.token,))
@@ -38,16 +47,17 @@ class FeishuClient:
             res.raise_for_status()
             payload = res.json()
         except (requests.RequestException, ValueError) as exc:
-            # 不输出响应全文、凭证或请求 URL。写入超时不自动重试，避免重复创建。
-            message = f"飞书请求 #{request_number} 失败：HTTP={status}，异常={type(exc).__name__}；写入请求结果可能未知，重跑时会先读记录"
+            transient = status is None or status in (408, 429) or status >= 500 or isinstance(exc, ValueError)
+            message = f"飞书请求 #{request_number} 失败：HTTP={status}，异常={type(exc).__name__}；可重试={transient}"
             logging.error("%s；耗时=%.2f秒", message, monotonic() - started)
-            raise FeishuError(message) from None
+            raise FeishuError(message, retryable=transient) from None
         if not isinstance(payload, dict):
-            raise FeishuError(f"飞书请求 #{request_number} 返回的 JSON 不是对象")
+            raise FeishuError(f"飞书请求 #{request_number} 返回的 JSON 不是对象", retryable=True)
         logging.info("飞书响应 #%s：HTTP=%s；code=%s；耗时=%.2f秒", request_number, status, payload.get("code"), monotonic() - started)
         if payload.get("code") != 0:
             detail = safe_text(payload.get("msg", ""), self.config, (self.token,))
-            raise FeishuError(f"飞书 API 返回错误码 {payload.get('code')}：{detail}；请求 #{request_number}")
+            raise FeishuError(f"飞书 API 返回错误码 {payload.get('code')}：{detail}；请求 #{request_number}",
+                              retryable=payload.get("code") in (99991400, 1254290, 1254291, 1255001, 1255040))
         return payload
 
     def authenticate(self):
@@ -86,7 +96,12 @@ class FeishuClient:
         return self.items(table, "records")
 
     def create(self, table, fields):
-        return self.request("POST", self.path(table, "records"), json={"fields": fields})["data"]["record"]
+        path = self.path(table, "records")
+        # 同一目标与完整载荷固定为同一 UUID，HTTP 重试、整体重试、离线重跑均复用。
+        # 官方 SDK 的新增记录接口将 client_token 放在查询参数中。
+        encoded = json.dumps([path, fields], sort_keys=True, ensure_ascii=True, allow_nan=False).encode()
+        token = str(UUID(bytes=hashlib.sha256(encoded).digest()[:16], version=4))
+        return self.request("POST", path, params={"client_token": token}, json={"fields": fields})["data"]["record"]
 
     def update(self, table, record_id, fields):
         return self.request("PUT", self.path(table, "records/" + record_id), json={"fields": fields})["data"]["record"]
@@ -253,6 +268,6 @@ def sync_plan(client, plan, config, progress=None, check_only=False):
                       report["phase"], report.get("table", "未选择"), report.get("date", "未进入写入"), report["error"],
                       sum(a.get("status") == "success" for a in report["actions"]))
         progress(report)
-        raise FeishuError(report["error"]) from None
+        raise FeishuError(report["error"], retryable=getattr(exc, "retryable", isinstance(exc, RuntimeError))) from None
     progress(report)
     return report

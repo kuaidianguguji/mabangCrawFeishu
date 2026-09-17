@@ -53,8 +53,12 @@ def collect(tab, config, save_raw):
         except Exception as exc:
             # 仅记录异常类型，第三方异常可能含 URL 或敏感内容。
             errors["navigation"] = type(exc).__name__
+            logging.warning("采集轮次 %s/%s 失败：%s", attempt + 1, t["retry_count"] + 1, type(exc).__name__)
         finally:
-            stop_listener(tab)
+            try:
+                stop_listener(tab)
+            except Exception as exc:
+                logging.warning("停止监听失败：%s；后续整体重试将重建浏览器", type(exc).__name__)
         if len(captured) == len(MODULES):
             errors.pop("navigation", None)
             break

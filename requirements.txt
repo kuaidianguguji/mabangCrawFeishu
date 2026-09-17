@@ -1,4 +1,12 @@
+# Python 3.11+ (tomllib and zoneinfo are provided by Python).
+# Keep the browser API version used and verified by this project.
 DrissionPage==4.1.1.4
+
+# Feishu HTTP API client; declare explicitly even though DrissionPage also uses it.
 requests>=2.32,<3
+
+# IANA timezone data for zoneinfo, especially on Windows.
 tzdata>=2024.1
+
+# Prevent multiple resident schedulers from using the same state directory.
 filelock>=3.15,<4

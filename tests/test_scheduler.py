@@ -90,8 +90,9 @@ class SchedulerTests(unittest.TestCase):
             self.config["output"]["directory"] = tmp
             with patch("mabang_sync.browser.open_browser", return_value=(browser, Mock())), patch("mabang_sync.browser.ensure_login", side_effect=RuntimeError("login")):
                 with self.assertRaises(RuntimeError):
-                    run_collection(self.config)
-        browser.quit.assert_called_once()
+                    with patch("mabang_sync.retry.time.sleep"):
+                        run_collection(self.config)
+            self.assertEqual(browser.quit.call_count, self.config["retry"]["before_capture"]["count"] + 1)
 
     def test_invalid_time_rejected(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -66,7 +66,7 @@ class DashboardTests(unittest.TestCase):
 
     def test_virtualized_option_appears_after_panel_scroll(self):
         tab, panel, option = Mock(), Mock(), Mock()
-        tab.ele.side_effect = [None, option]
+        tab.ele.side_effect = [None, None, option] # 先检查是否已选中，再查找滚动选项
         tab.eles.return_value = [panel]
         option.states.is_displayed = panel.states.is_displayed = True
         with patch("mabang_sync.dashboard.time.sleep"):

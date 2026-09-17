@@ -6,7 +6,9 @@ password = ""
 
 [browser]
 executable = "" # 留空自动寻找 Chrome，也可填写固定 chrome.exe 路径
-profile_dir = "runtime/browser-profile"
+profile_dir = "storage_logininfo/browser-profile" # 固定 Chrome 用户目录，保留 Cookie、localStorage 等
+login_info_dir = "storage_logininfo" # 保存 Cookie / sessionStorage 快照，每次启动自动恢复
+legacy_profile_dir = "runtime/browser-profile" # 新目录不存在时从旧目录复制一次；留空禁用迁移
 port = 9333
 headless = false
 language = "zh-CN"
@@ -36,8 +38,31 @@ page_timeout = 45
 login_timeout = 120 # 有验证码时可在浏览器手动完成
 capture_timeout = 60 # 每轮监听的总等待秒数
 poll_interval = 0.5
-retry_count = 2 # 额外重试次数，仅用于采集；不反复提交密码
+retry_count = 2 # 单轮采集内部补齐接口的额外次数；与 retry.before_capture 整体重试独立
 retry_interval = 3
+
+# 以下 count 均为“额外重试次数”，0 表示只执行一次；interval 单位为秒，可为 0。
+# 各层独立计数，整体重试会重新获得内部重试预算，因此最坏等待时间可能叠加。
+# 页面单次等待由 timing.page_timeout 控制；按钮由 element_timeout 控制；飞书由 feishu.timeout 控制。
+[retry.button]
+count = 2 # 点击异常或明确返回 False 时，重新定位后点击；已达到目标状态则不重复点击
+interval = 1
+
+[retry.page]
+count = 2 # 首页/看板加载异常或返回 False 时重新进入页面；看板每次先重启监听
+interval = 3
+
+[retry.feishu]
+count = 3 # 飞书网络异常、HTTP 408/429/5xx、临时业务错误重试；字段/权限错误不重试
+interval = 5 # 新增请求保持相同 client_token，避免响应丢失导致重复创建
+
+[retry.before_capture]
+count = 2 # 八个 JSON 尚未收齐：浏览器启动、登录、时区切换、采集整体重试
+interval = 10 # 重启本次专用浏览器后再尝试；保留每次失败目录，禁止跨整体轮次混用 JSON
+
+[retry.after_capture]
+count = 2 # JSON 已收齐：清洗、保存、飞书同步遇到意外异常时，用同一批数据整体重试
+interval = 10 # 不重新打开浏览器采集；飞书重跑前重新查询，已成功且未变化的记录跳过
 
 [output]
 directory = "output"

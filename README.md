@@ -1,117 +1,279 @@
-# 马帮 ERP 看板采集与数据清洗
+# 马帮 ERP → 飞书多维表格
 
-Python 3.11+，DrissionPage 4.1.1.4。当前范围：登录 → 监听 8 个接口 → 原始响应落盘 → 清洗 → 输出字段字典及运行报告。已支持六张飞书表的每日宽表映射、预览及按日期更新。首次接入见 [飞书配置说明](docs/feishu_sync.md)。默认只生成预览，配置凭证和表 ID 后可启用同步。
+使用 DrissionPage 登录马帮云 BI，监听 8 个接口，保存原始 JSON、清洗数据，并按日期写入六张飞书多维表。支持北京时间每日定时运行、立即执行、离线预览、只读检查及历史数据校正。
 
-## 快速使用（PowerShell，项目根目录）
+**看板使用巴西 UTC-3，飞书「日期」按北京时间填写。** 默认配置只生成本地预览；完成飞书配置并启用同步后，采集任务才会自动上传。
+
+## 安装与配置
+
+需要 Python 3.11+ 和 Chrome / Chromium。以下命令在 Windows PowerShell 的项目根目录执行，直接使用虚拟环境中的 Python，无需先激活环境。
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-Copy-Item config.example.toml config.toml
+if (-not (Test-Path -LiteralPath config.toml)) {
+    Copy-Item -LiteralPath config.example.toml -Destination config.toml
+}
 ```
 
-编辑 `config.toml` 的用户名、密码和浏览器路径，再运行：
+编辑 `config.toml`。配置模板见 [config.example.toml](config.example.toml)。已有配置文件会保留；更新项目后，应对照模板补充新增选项。
+
+| 配置节 | 主要内容 |
+| --- | --- |
+| `account` | 马帮用户名、密码 |
+| `browser` | 浏览器路径、固定用户目录、调试端口、窗口大小、退出时是否关闭 |
+| `mabang` | 登录与看板地址、登录元素、时区选择器 |
+| `timing` | 元素、页面、登录和采集等待时间，采集重试次数 |
+| `retry` | 按钮、页面、飞书请求、获取数据前后整体流程的独立重试次数和间隔 |
+| `output` | 本地输出目录 |
+| `schedule` | 每日北京时间、轮询间隔、调度状态目录 |
+| `feishu` | 同步开关、应用凭证、多维表格标识、请求超时、原值字段前缀 |
+| `feishu.tables` | 六张表的 `table_id` |
+| `feishu.sync` | 日期口径、币种、筛选标签及历史校正开关 |
+
+账号可通过 `MABANG_USERNAME` / `MABANG_PASSWORD` 覆盖；飞书应用凭证可通过 `FEISHU_APP_ID` / `FEISHU_APP_SECRET` 覆盖。`app_token` 是多维表格标识，区别于应用的 `app_id`。
+
+配置中的浏览器用户目录、输出目录及调度状态目录，相对路径以配置文件所在目录为基准。命令行 `--input` / `--output` 的相对路径以当前工作目录为基准。
+
+### 依赖说明
+
+| 依赖 | 用途 |
+| --- | --- |
+| `DrissionPage==4.1.1.4` | 浏览器控制与网络响应监听，固定已适配版本 |
+| `requests>=2.32,<3` | 飞书 HTTP API 请求 |
+| `tzdata>=2024.1` | 为 `zoneinfo` 提供时区数据，尤其适用于 Windows |
+| `filelock>=3.15,<4` | 防止同一状态目录启动多个常驻调度进程 |
+
+配置解析、定时调度及单元测试使用 Python 标准库，无需额外安装调度或测试框架。更新依赖声明后可执行：
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip check
+```
+
+## 常用命令
+
+### 采集一次
 
 ```powershell
 .\.venv\Scripts\python.exe -m mabang_sync collect --config config.toml
 ```
 
-也可用 `MABANG_USERNAME` / `MABANG_PASSWORD` 环境变量覆盖账号配置。遇到验证码，在登录等待时间内手动完成。登录只提交一次，防止密码错误时持续尝试。首页存在 `//a[@id="login-btn"]` 时点击登录入口；存在 `//div[@id="mb-user"]` 即确认登录成功（`logged_in_xpath`），不依赖 URL。两个标志都不存在时继续等待，不将按钮消失当成登录成功。确认登录后先启动监听，再进入数据看板，按下面的 UTC-3 流程处理响应。`logged_in_url_pattern` 仅保留兼容旧配置，不再参与判断。当前代码按所给 XPath 操作同一标签页；若真实网站改为新标签页/iframe，需要据实际页面调整登录适配器。
+依次执行登录、采集、清洗和飞书映射。`feishu.enabled = true` 时实际同步；为 `false` 时只生成预览。
 
-## 看板时区：巴西 UTC-3
+### 常驻运行
 
-每轮进入看板后检查 `//section//div[@data-filter="timezone"]//button` 的文字：
+```powershell
+.\.venv\Scripts\python.exe -m mabang_sync schedule --config config.toml
+```
 
-- 包含 UTC-3：保留进入页面前启动的监听，直接使用初次加载响应，不刷新页面。
-- 不包含 UTC-3：取消首次监听并丢弃其响应，开启新监听，点击时区按钮，滚动下拉列表并选择 `//section//div[@role="listbox"]//button[contains(@title, "UTC-3")]`。
+立即执行一次，然后继续定时运行：
 
-每轮都先启动监听再进入看板；时区按钮的文字如果暂时是 `cbt,mla,mlb,mlu,br` 等内部编码，程序会继续按轮询间隔重新读取，直到同一 XPath 的内容出现 `UTC` 后才决定分支。只有首次检查不是 UTC-3 时才弃用初次响应。选项已在 DOM 但位于滚动区域外时滚动到该元素；选项未加载时向下滚动列表寻找。进入/切换后以及本轮响应保存前均确认按钮含 UTC-3，失败则丢弃本轮响应并按配置重试。选择器与匹配文字位于 config.toml 的 mabang 配置节。
+```powershell
+.\.venv\Scripts\python.exe -m mabang_sync schedule --config config.toml --now
+```
 
-看板读取 UTC-3 数据，但按用户约定，飞书「日期」使用北京时间的采集日期。`feishu.sync.business_timezone="Asia/Shanghai"` 决定行日期，`timezone="Asia/Shanghai"` 决定飞书日期编码/查询；`source_timezone="Etc/GMT+3"` 记录看板实际统计时区。例如北京时间 9月12日09:55 采集的数据，飞书日期写 9月12日，实际看板 today 为巴西 9月11日；yesterday 校正北京标签 9月11日。历史趋势回补也按该批次的日期差平移标签，以免与昨日校正错行；raw/cleaned 中原始统计日期保持不变。plan 中同时保存 business_date 和 source_business_date 供核对。重新导入旧口径目录时请先核对日期，必要时用 --date 明确行日期。
-
-更新字段统一采用「更新时间(巴西)」，同时兼容尚未改名的「更新时间」。若字段为文本，写入带 -03:00 的 ISO 巴西时间；若字段为日期，写入标准毫秒时间戳，展示时区由飞书的日期显示设置决定，程序不会通过减去 11 小时伪造时间戳。优先匹配新名称，不会自动删除旧列。
-
-## 常驻运行：每天北京时间 09:55
-
-`config.toml` 已增加：
+模板中的每日时间为北京时间 09:55，实际运行以本地 `config.toml` 为准：
 
 ```toml
 [schedule]
-times = ["09:55"]
+times = ["09:55"] # 支持多个时间，例如 ["09:00", "18:00"]
 poll_interval = 5
 state_dir = "runtime/scheduler"
 ```
 
-在项目目录启动：
+- `--now` 完成后等待下一个未来时间点；启动时不会自动补跑已经错过的时间。
+- 单次任务失败会记录原因，常驻进程继续等待后续任务。采集内部仍按 `timing` 配置重试。
+- 调度状态在执行前登记，避免重启后重复触发同一时间点；中断的任务需要手动补跑。
+- 调整定时时间或更新代码后，按 `Ctrl+C` 停止并重新启动。建议保留 `browser.close_on_exit = true`。
+- 这是前台常驻进程。定时运行期间需保持终端开启、电脑唤醒且网络可用；不会自动注册开机服务。
+
+### 处理已采集的数据
+
+将下面路径替换为实际运行目录。`clean` 接收直接存放 8 个 JSON 的目录；`feishu` 支持运行目录或其 `raw` 子目录。
 
 ```powershell
-python -m pip install -r requirements.txt
-python -m mabang_sync schedule --config config.toml
+$runDir = "output/20260912_111614_7b10d41d"
+
+# 重新清洗，生成新的输出目录，不打开浏览器
+.\.venv\Scripts\python.exe -m mabang_sync clean --input "$runDir/raw" --output output
+
+# 生成本地写入计划，不访问飞书
+.\.venv\Scripts\python.exe -m mabang_sync feishu --input $runDir --config config.toml
+
+# 联网检查字段和记录差异，不修改飞书记录
+.\.venv\Scripts\python.exe -m mabang_sync feishu --input $runDir --config config.toml --check
+
+# 实际写入飞书
+.\.venv\Scripts\python.exe -m mabang_sync feishu --input $runDir --config config.toml --write
 ```
 
-启动后会显示下一次执行时刻，每天北京时间（Asia/Shanghai，UTC+8）到点执行一次完整采集、清洗和飞书同步，不受 Windows 当前时区影响。飞书是否上传仍由 `feishu.enabled` 控制。`collect` 命令仍只运行一次。
+`--check` 与 `--write` 互斥。离线命令显式添加 `--write` 后会写入，即使配置中的 `feishu.enabled` 为 `false`。默认根据源数据时间戳确定行日期，重跑旧目录不会自动改成执行当天；需要指定行日期时可添加 `--date YYYY-MM-DD`。
 
-立即执行一次，然后保持常驻：
+## 飞书表结构与写入规则
 
-```powershell
-python -m mabang_sync schedule --now
-```
+首次接入请按 [飞书配置说明](docs/feishu_sync.md) 配置应用、表权限及字段。完整字段清单见 [feishu_schema.json](docs/feishu_schema.json)，源数据类型和含义见 [数据字典](docs/data_dictionary.md)。
 
-`--now` 受同一个常驻进程锁保护；每次显式启动都会执行一次，结果保存到 `immediate_state.json`，不覆盖每日定时的防重状态。执行成功或失败后均继续等待下一个尚未到达的配置时刻；立即运行期间错过的定时时刻不补跑。仅想立即执行一次并退出，仍使用 `python -m mabang_sync collect`。
+六张表均采用「每日一行」的宽表结构：
 
-- 可配置多个时刻，例如 `times = ["09:55", "18:00"]`；必须为两位 HH:MM，不可重复。
-- 修改每日时间、轮询间隔或状态目录后，需要 Ctrl+C 停止并重新启动。账号、飞书开关等任务配置在每次触发前重新读取。
-- 启动时若今天的 09:55 已过，则等待明天，不自动补跑。需要立即运行时先使用 `collect`，完成后再启动 `schedule`。
-- 运行中的任务顺序执行，不重叠。任务失败或返回不完整状态会记录日志，继续等待下一时刻；同一时刻不会无限重试。采集内部原有重试仍生效。
-- 运行期间电脑睡眠后在当天恢复，会补执行已等待的那次任务；若已跨日则跳过旧日期，避免拿今天的数据作为昨日定时结果。任务执行期间错过的其他时刻不排队补跑。
-- `runtime/scheduler/state.json` 保存最后触发时刻与结果，`scheduler.log` 保存北京时间日志并轮转。触发前先保存状态，避免崩溃后重复自动提交；强制中断的任务需检查输出并手动补跑。
-- 同一状态目录只允许一个常驻进程。不要在常驻任务正在采集时另开 `collect`，二者共用浏览器端口。
-- 必须保持 `browser.close_on_exit=true`，每次结束关闭专用浏览器，Cookie 用户目录仍保留。验证码仍可能需要人工处理。
+| 配置键 | 表名 | 主要内容 |
+| --- | --- | --- |
+| `products` | 每日商品榜单 | 销售额榜前 5 名的商品名、销售额、销量 |
+| `shops` | 每日店铺表现 | 前 5 名的店铺名、销售额、订单数、销量原值、毛利润 |
+| `managers` | 每日管理员表现 | 前 5 名的姓名、销售额、订单数 |
+| `platforms` | 每日平台销售 | 虾皮、美客多的销售额、订单数及排名 |
+| `summary` | 每日经营汇总 | 销售额、订单收入、订单数、销量、毛利润、支出、退款及变化比例 |
+| `hourly` | 每日每时销售额 | `0时` 至 `23时` 的销售额 |
 
-这是项目内常驻命令，不是 Windows 服务，也不会自动开机启动或唤醒电脑。保持电脑开机、联网、不休眠，并让 PowerShell 进程持续运行；Ctrl+C 可停止。仅修改项目不会自动在后台启动进程。
+国家销售、品类销售不写入飞书，原始接口数据仍保存在本地。商品表使用销售额榜，不与销量榜混排；店铺「销量原值」保留接口 `skuNum` 口径。平台映射固定为虾皮与美客多，其他平台会产生警告并保留在本地数据中。
 
-仅处理已有 JSON，不打开浏览器、不需要密码：
+字段名称必须完全一致，例如 `排名1-店铺名` 与 `排名1-店铺名1` 是不同字段。每张表都需要 `日期`、`更新时间(巴西)` 和文本字段 `数据说明`。`日期` 使用日期字段；金额、数量及源比例使用数字字段，比例以小数存储，例如 `-64.5%` 对应 `-0.645`。缺失值与数值 `0` 分开处理。
 
-```powershell
-.\.venv\Scripts\python.exe -m mabang_sync clean --input C:\Users\hqt\Desktop --output output
-.\.venv\Scripts\python.exe -m unittest discover -s tests -v
-```
+经营汇总中的原有公式字段保留，马帮原值写入对应的 `马帮-…` 数字列，前缀由 `formula_source_prefix` 配置。请预先建好这些列。销售额与订单收入、退款率与退款变化比例是不同指标，不能互相替代。
 
-## 会话与配置
+### 更新行为
 
-固定 `profile_dir` 保存 Cookie、Local Storage 和浏览器设置；固定端口、语言、窗口大小，可指定固定浏览器程序和 UA。配置路径相对 `config.toml` 所在目录解析。服务器仍可使 Cookie 过期，过期后会重新登录。浏览器自动更新、系统字体/时区等不由此程序冻结。
+- 写入前检查所有目标表的字段及类型；预检查失败时停止本批写入，报告具体表名、缺失字段和相似字段。
+- 按「日期」查找记录：无记录则新增，已有记录只更新变化字段；同一天存在重复记录时停止，避免写错行。
+- 数据相同则记录 `unchanged`，不单独刷新更新时间；源快照早于已有更新时间时记录 `skip_older_snapshot` 并跳过。
+- 有效榜单不足 5 名时清空多余名次，避免保留旧榜单；源结构异常则报告错误，不把异常当成空榜单。
+- 多表写入不是整体事务，中途失败可能已有部分表写入成功。按报告处理后可重新运行，由程序重新比对。
 
-默认退出时关闭专用浏览器但保留用户目录。若设 `close_on_exit=false`，再次运行前需关闭专用浏览器；检测到端口占用会拒绝接管。不要并发运行同一 profile。调整启动参数后需重新启动浏览器。
+同一组表应保持一致的币种、筛选条件和日期口径。`scope` 只是记录标签，不会切换页面筛选；程序自动调整的页面筛选是时区。避免同时启动多个手动写入命令，以免并发新增同一天的记录。
 
-`config.toml`、`runtime/`、`output/`、`.env` 均已加入 `.gitignore`。真实账号、Cookie 和业务样例不应进入 Git。项目已有暂存的 `.idea` 文件未修改；`.gitignore` 不会自动取消已有跟踪。
+### 昨日比对与历史校正
 
-## 输出与完整性
-
-每次生成独立 `output/时间_唯一标识/`：
-
-- `raw/*.json`：验证成功后立即保存完整接口响应，不保存请求头和 Cookie。
-- `cleaned/*.json`：清洗表格、源响应时间戳、运行开始时间、状态、警告、未映射数据。
-- `report.json`：8 个接口是否齐全、缺失接口、错误及每张表行数。
-
-退出码 `0` 表示采集及清洗完整，`2` 表示缺接口、未知结构或清洗校验失败，`1` 表示配置/登录等运行失败。清洗命令的完整性与飞书同步独立；collect 还会检查飞书映射/同步完整性。
-
-八个接口均已按最新真实响应补齐清洗；国家和品类按要求不写飞书，只保留源数据。旧的重复样例不符合真实结构时会标记 schema_error。
-
-所有接口是实时请求，重试只补缺失模块，所以跨接口不保证同一事务快照。`source_timestamp_ms` 是服务器返回的时间戳；`run_started_at` 是本次运行开始时间，不是订单日期。监听仅收集页面实际发出的请求，不会自动修改看板筛选或点击未展示模块。
-
-金额与比例通过 Decimal 校验，JSON 以十进制字符串保存，避免进一步引入浮点运算误差；浏览器已解析浮点数的原始精度无法恢复。缺失值保留为 null，真实零保留。日期保留原始日期，店铺 ID 保留字符串。字段字典见 [docs/data_dictionary.md](docs/data_dictionary.md)。
-
-## 结构与扩展
-
-| 文件 | 职责 |
+| `feishu.sync` 开关 | 启用后的作用 |
 | --- | --- |
-| `config.py` | 配置加载、环境变量、校验 |
-| `browser.py` | 固定浏览器环境、登录确认 |
-| `collector.py` | URL 白名单、监听、响应校验、重试 |
-| `cleaners.py` | 纯函数清洗、字段映射、结构异常保护 |
-| `storage.py` | 本地 JSON 输出及报告 |
-| `__main__.py` | 命令行流程编排 |
+| `compare_yesterday` | 用 `hourly` 的 `yesterday` 校正昨日各小时销售额，用昨日销售额校正昨日经营汇总 |
+| `correct_day_before_yesterday` | 用明确的前日销售额校正前日经营汇总 |
+| `backfill_sales_trend` | 使用销售趋势中的历史销售额、订单数回补经营汇总 |
 
-新增接口：在 `MODULES` 添加名称，在 `clean_module()` 添加对应分支及字段规则，再添加结构测试。`feishu_plan.py` 负责六表映射和历史纠正计划；`feishu.py` 负责鉴权、字段预检、按日期读取和差异写入。修改飞书逻辑不影响浏览器登录。完整字段清单见 docs/feishu_schema.json。
+三个开关默认均为 `false`，彼此独立。即使关闭昨日比对，启用历史趋势回补仍可能修改昨日数据。
 
-实现参考官方 [监听文档](https://www.drissionpage.cn/browser_control/listener/) 和 [浏览器启动配置](https://www.drissionpage.cn/browser_control/browser_options/)。
+校正仅更新接口明确提供的历史字段；一致时不修改，不一致时采用本次返回的历史值。目标日期没有记录时可新增部分字段，其余保持空白。明确的昨日/前日销售额优先于趋势值；昨日同时段数值不用于全天校正，也不会通过变化比例反推历史榜单。
+
+## 时区与浏览器流程
+
+### 日期口径
+
+| 设置 | 值及用途 |
+| --- | --- |
+| 调度时区 | 固定北京时间 `Asia/Shanghai` |
+| `feishu.sync.business_timezone` | `Asia/Shanghai`：根据源时间戳确定飞书行日期 |
+| `feishu.sync.timezone` | `Asia/Shanghai`：飞书日期值编码及记录日期识别 |
+| `feishu.sync.source_timezone` | `Etc/GMT+3`：看板统计时区，表示固定 UTC-3 |
+
+例如北京时间 9 月 12 日 09:55 采集，巴西为 9 月 11 日 22:55：飞书「日期」写 9 月 12 日，数据来自看板巴西 9 月 11 日的 `today`；本次 `yesterday` 校正飞书 9 月 11 日的行。历史趋势按同一批次的日期差平移标签，本地原始和清洗数据保留源统计日期。计划中的 `business_date` 与 `source_business_date` 可用于核对。
+
+更新时间优先写入 `更新时间(巴西)`，兼容旧名称 `更新时间`。文本字段写入带 `-03:00` 的时间；日期字段写入时间戳，界面显示时区由飞书设置决定，仅改字段名称不会改变显示时区。
+
+### 登录与监听
+
+1. 使用固定浏览器配置及 `profile_dir` 打开首页。存在 `//a[@id="login-btn"]` 时点击登录入口，等待账号、密码输入框后提交；检测到 `//div[@id="mb-user"]` 才确认登录成功。验证码可在登录等待时间内手动完成。
+2. 登录成功后，先启动接口监听，再进入云 BI。轮询 `//section//div[@data-filter="timezone"]//button` 的内容并输出日志；内容不含 `UTC` 时继续等待渲染，不将内部编码当成时区。
+3. 内容包含 `UTC-3` 时保留进入页面时的监听结果，不刷新。否则弃用首次响应、重启监听，再打开下拉框并滚动寻找、点击 `//section//div[@role="listbox"]//button[contains(@title, "UTC-3")]`。切换后和本轮保存前均确认时区，校验失败则丢弃本轮响应并重试。
+
+固定用户目录会保留 Cookie 等浏览器状态，服务端登录失效后仍需重新登录。请勿让其他浏览器进程占用同一用户目录或调试端口；程序不会直接接管已占用的端口。
+
+### 登录状态目录
+
+默认将登录资料集中保存到项目下的 `storage_logininfo/`：
+
+```text
+storage_logininfo/
+├── browser-profile/   # Chrome 原生用户资料：Cookie、localStorage 等
+└── login_state.json   # Cookie（包括会话 Cookie）及同源 sessionStorage 快照
+```
+
+每次启动先加载固定 Chrome 用户资料，再用快照补充缺失且未过期的 Cookie，并在首页脚本执行前恢复同源 sessionStorage 的缺失键。登录成功后及浏览器关闭前保存快照。Cookie 过期或服务端会话失效后仍会进入正常登录流程。
+
+`browser.profile_dir` 与 `browser.login_info_dir` 控制上述路径；`browser.legacy_profile_dir` 指向旧的 `runtime/browser-profile`。新用户目录不存在时，程序会在首次启动时复制旧资料，保留原目录；目标目录已存在则不覆盖。迁移前关闭旧专用浏览器。快照包含登录凭证信息，整个目录的运行内容已加入 Git 忽略规则。
+
+### 分层重试
+
+本地 `config.toml` 和模板均提供以下配置，`count` 表示额外重试次数，`interval` 表示两次尝试之间等待的秒数：
+
+| 配置节 | 默认 count / interval | 重试范围 |
+| --- | --- | --- |
+| `retry.button` | 2 / 1 秒 | 点击异常或返回 `False` 后重新定位元素；已达到目标状态则跳过重复点击 |
+| `retry.page` | 2 / 3 秒 | 首页、看板页面加载异常或返回 `False`；每次重进看板前重启监听 |
+| `retry.feishu` | 3 / 5 秒 | 飞书请求网络异常、HTTP 408/429/5xx 及已识别的临时业务错误 |
+| `retry.before_capture` | 2 / 10 秒 | 八个 JSON 收齐前，重建本次浏览器并重跑登录、时区判断和采集 |
+| `retry.after_capture` | 2 / 10 秒 | JSON 收齐后，使用同一批源数据重跑落盘、清洗和同步，不重新采集 |
+
+例如设置 `count = 2`，表示最多执行 3 次；设为 `0` 则该层不重试。单次页面、按钮及飞书请求等待时间仍分别由 `timing.page_timeout`、`timing.element_timeout`、`feishu.timeout` 控制。`timing.retry_count` / `retry_interval` 保留为采集内部补齐接口的重试配置，各层预算独立，整体重试会重新获得内部预算，总耗时可能叠加。
+
+日志会显示阶段、当前尝试次数、失败类型、下次等待秒数及重试是否成功。缺少账号、字段不匹配、权限或参数错误等需要人工处理的问题不盲目重试；源结构导致的清洗/映射不完整仍通过报告反馈。`Ctrl+C` 会直接中断。
+
+飞书新增记录携带固定的 `client_token`，同一目标和载荷在请求重试、整体重试和离线重跑时保持一致；整体重跑也会重新读取飞书记录并比较差异。参数位置依据[官方新增记录 SDK](https://github.com/larksuite/oapi-sdk-python/blob/v2_main/lark_oapi/api/bitable/v1/model/create_app_table_record_request.py)。已成功的写入不会回滚；最终失败后仍可根据本地报告补跑。
+
+监听模块：`sales-overview`、`hourly`、`amount-category`、`manager-refund`、`hot-product`、`statistics`、`order-metrics`、`shop-ranking`。响应通过接口状态和时区校验后保存，再分别清洗。
+
+## 输出、日志与排错
+
+每次采集或清洗生成独立的 `output/日期_时间_随机标识/` 目录：
+
+| 文件 | 用途 |
+| --- | --- |
+| `raw/*.json` | 通过校验的原始接口响应 |
+| `cleaned/*.json` | 清洗结果，金额与比例以十进制字符串保留精度 |
+| `report.json` | 接口完整性、清洗完整性及各模块问题 |
+| `capture_failure.json` | 获取数据前失败的阶段和异常类型；每次整体尝试使用独立目录 |
+| `feishu_plan.json` | 六表待写字段、日期口径、映射错误及警告 |
+| `feishu.log` | 飞书流程详细日志，每次执行追加 |
+| `feishu_check_report.json` | `--check` 的只读检查结果 |
+| `feishu_sync_report.json` | 实际同步的阶段、逐条操作与完成状态 |
+
+仅执行 `clean` 不生成飞书文件；流程提前失败时，后续阶段文件可能尚未生成。常驻运行日志另存于配置的调度状态目录下 `scheduler.log`，并保存调度防重状态。
+
+**「接口完整: True；清洗完整: True」只说明采集和清洗成功。** 判断飞书是否更新，应查看飞书同步日志及 `feishu_sync_report.json`。预览或只读检查成功不表示已上传。
+
+飞书日志包含执行模式、认证结果、接口请求与响应状态、分页读取、字段预检查、日期匹配、变化字段、记录操作及失败阶段；凭证和令牌会脱敏。
+
+| 现象 | 检查方法 |
+| --- | --- |
+| 提示「飞书未上传：当前仅生成预览」 | 自动采集设置 `feishu.enabled = true`；离线写入添加 `--write` |
+| `actions` 为空，预检查失败 | 查看报告的 `phase`、表名和 `error`；按日志核对字段名称、类型及 `马帮-…` 数字列 |
+| 缺少 `排名1-店铺名` 等字段 | 名称需逐字一致，去掉误加的序号、空格等字符；先用 `--check` 验证 |
+| `unchanged` | 本次业务值与飞书已有值一致，无需更新 |
+| `skip_older_snapshot` | 本地源数据早于已写入快照，避免旧值覆盖新值 |
+| `would_create` / `would_update` | 只读检查预计会新增/更新，实际写入需使用 `--write` |
+| 飞书接口返回错误 | 查看 HTTP 状态、业务错误码和提示，核对应用凭证、表权限、`app_token` 与 `table_id` |
+| 接口完整但清洗完整为 `False` | 查看 `report.json` 中失败模块及对应原始响应，通常是源结构未适配 |
+| 时区内容一直不含 `UTC` | 查看日志中的实际文字和 XPath，检查页面渲染及等待时间；不会直接接受该批数据 |
+| 浏览器端口占用 | 关闭占用该端口的项目浏览器，或为独立配置指定不同端口和用户目录 |
+
+单次命令成功返回 `0`；报告不完整通常返回 `2`；捕获到的运行错误返回 `1`。返回 `0` 的预览或检查仍不会写入。PowerShell 可通过 `$LASTEXITCODE` 查看退出码。
+
+## 代码结构与验证
+
+| 模块 | 职责 |
+| --- | --- |
+| `config.py` | TOML 配置加载、默认值及校验 |
+| `browser.py` / `dashboard.py` | 浏览器启动、登录、时区确认与切换 |
+| `login_state.py` / `retry.py` | 登录资料持久化与迁移、分层重试及按钮/页面适配 |
+| `collector.py` | 接口监听、响应校验、重试 |
+| `cleaners.py` / `storage.py` | 数据清洗、原始数据与报告落盘 |
+| `feishu_plan.py` | 源数据到六张表的映射及历史校正计划 |
+| `feishu.py` | 飞书 API、字段检查、差异比对及写入 |
+| `scheduler.py` | 北京时间调度、进程锁、状态与常驻日志 |
+| `diagnostics.py` | 飞书错误整理与敏感内容脱敏 |
+| `__main__.py` | 命令行入口及流程编排 |
+
+新增接口时扩展采集模块和对应清洗器；修改飞书字段时同步调整映射、字段清单和测试。新增清洗字段应在数据字典中记录名称、类型和业务含义。
+
+```powershell
+# 单元测试
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+
+# 可选：真实浏览器的本地模拟看板测试，需要 Chrome 和空闲端口 9448
+.\.venv\Scripts\python.exe tests/browser_dashboard_smoke.py
+
+# 可选：浏览器重启后的登录状态恢复测试，使用空闲端口 9449
+.\.venv\Scripts\python.exe tests/browser_login_state_smoke.py
+```
+
+浏览器模拟测试使用临时用户目录和本地模拟接口，验证初始 UTC-3 响应保留、下拉滚动及切换流程。
+
+提交 GitHub 使用 `config.example.toml`；`config.toml`、`.env`、`storage_logininfo/` 内的登录资料、运行日志、`output/` 和 `.venv/` 已通过 [.gitignore](.gitignore) 排除。

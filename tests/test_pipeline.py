@@ -83,7 +83,7 @@ class PipelineTests(unittest.TestCase):
         tab.get.side_effect = [RuntimeError("navigation"), None]
         tab.listen.wait.side_effect = [SimpleNamespace(url=config["mabang"]["api_base"] + n, is_failed=False,
             response=SimpleNamespace(status=200, body=response({}))) for n in MODULES]
-        with patch("mabang_sync.collector.time.sleep"):
+        with patch("mabang_sync.collector.time.sleep"), patch("mabang_sync.retry.time.sleep"):
             captured, errors = collect(tab, config, Mock())
         self.assertEqual(len(captured), 8)
         self.assertEqual(tab.listen.start.call_count, 2)
@@ -135,7 +135,7 @@ class PipelineTests(unittest.TestCase):
         with patch("mabang_sync.browser.time.sleep"):
             ensure_login(tab, config)
         self.assertEqual(events, ["open", "username", "password", "submit"])
-        self.assertEqual(state["submit_lookups"], 2)
+        self.assertEqual(state["submit_lookups"], 3) # 点击适配器会重新定位，避免使用已失效元素
 
     def test_url_without_user_marker_is_not_login_success(self):
         tab = Mock(url="https://www.mabangerp.com/index.php?mod=main")

@@ -5,5 +5,7 @@ __pycache__/
 config.toml
 .env
 runtime/
+storage_logininfo/*
+!storage_logininfo/.gitkeep
 output/
 samples/private/

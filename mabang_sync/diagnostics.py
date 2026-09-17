@@ -4,6 +4,9 @@ import json
 
 class FeishuError(ValueError):
     """已经脱敏、可以向终端和常驻日志展示的飞书错误。"""
+    def __init__(self, message, *, retryable=False):
+        super().__init__(message)
+        self.retryable = retryable
 
 
 def safe_text(value, config=None, secrets=()):

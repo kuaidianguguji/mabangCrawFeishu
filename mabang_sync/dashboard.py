@@ -1,6 +1,7 @@
 """看板时区选择与监听重置，不处理响应业务数据。"""
 import logging
 import time
+from .retry import load_page, click_button, run_with_retry
 
 
 def stop_listener(tab):
@@ -60,6 +61,15 @@ def wait_timezone_rendered(tab, config):
 
 
 def select_timezone(tab, config):
+    def select():
+        button = tab.ele("xpath:" + config["mabang"]["timezone_button_xpath"], timeout=0.2)
+        if button and config["mabang"]["timezone_text"] in button.text:
+            return
+        return _select_timezone(tab, config)
+    return run_with_retry(config, "button", select, "巴西时区选项点击")
+
+
+def _select_timezone(tab, config):
     """选项可能在可滚动列表外，或需滚动后才加载到 DOM。"""
     m, t = config["mabang"], config["timing"]
     deadline = time.monotonic() + t["element_timeout"]
@@ -83,9 +93,10 @@ def select_timezone(tab, config):
 
 def trigger_dashboard(tab, config, targets):
     m, t = config["mabang"], config["timing"]
-    stop_listener(tab)
-    tab.listen.start(targets)
-    tab.get(m["dashboard_url"], timeout=t["page_timeout"])
+    def restart_listener():
+        stop_listener(tab)
+        tab.listen.start(targets)
+    load_page(tab, m["dashboard_url"], config, before_attempt=restart_listener)
     button, actual_text = wait_timezone_rendered(tab, config)
     selected = m["timezone_text"] in actual_text
     logging.info("时区初次判断：XPath=%s；实际内容=%r；包含 %r=%s",
@@ -97,6 +108,8 @@ def trigger_dashboard(tab, config, targets):
         stop_listener(tab)
         tab.listen.start(targets)
         logging.info("看板时区不是 %s，弃用首次响应并重启监听后选择巴西时区", m["timezone_text"])
-        button.click(by_js=False)
+        click_button(tab, m["timezone_button_xpath"], config, click_kwargs={"by_js": False},
+                     satisfied=lambda: any(panel.states.is_displayed for panel in
+                                           tab.eles("xpath:" + m["timezone_list_xpath"], timeout=0.2)))
         select_timezone(tab, config)
     verify_timezone(tab, config)
