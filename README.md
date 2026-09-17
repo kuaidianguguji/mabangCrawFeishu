@@ -6,6 +6,30 @@
 
 ## 安装与配置
 
+### Windows 一键启动（推荐）
+
+从 GitHub 下载或克隆完整项目后，双击根目录的 [start.cmd](start.cmd)。脚本会在 CMD 窗口中完成准备并启动任务：
+
+1. 优先复用项目的 `.venv`。首次运行会通过 PATH、Python 启动器及注册表查找 Python 3.11+；只有一个可用版本时自动选择，多个可用版本时列出编号供选择。
+2. 未找到兼容 Python 时提示安装，也可手动输入已安装的 `python.exe` 完整路径。脚本不会自动安装系统 Python。
+3. 自动创建 `.venv`，按 `requirements.txt` 安装并检查依赖。已有环境损坏时先保留为 `.venv.backup-*`，再重建；安装失败会停止并保留错误提示，下次运行可重试。
+4. 首次生成 `config.toml`，打开记事本让你填写马帮账号、飞书凭证、表 ID 等配置；保存关闭后回到 CMD 按回车继续。需要自动上传时设置 `feishu.enabled = true`。已有配置不会被覆盖。
+5. 默认立即采集一次，随后按配置中的北京时间每日运行。保持 CMD 窗口开启，按 `Ctrl+C` 停止。
+
+后续双击会复用环境；`requirements.txt` 变化或环境检查失败时会重新安装检查，正常时跳过下载。电脑仍需安装 Chrome / Chromium。首次安装依赖需要联网，实际下载源遵循电脑的 pip 配置。
+
+在 CMD 中也可使用：
+
+```bat
+start.cmd
+start.cmd -ScheduledOnly
+start.cmd -SetupOnly
+```
+
+`-ScheduledOnly` 只等待下一个定时时间，不立即采集；`-SetupOnly` 只准备环境、生成并验证配置，不启动采集、不打开配置编辑器。启动失败时窗口会保留错误信息。辅助脚本位于 [scripts/start.ps1](scripts/start.ps1)，使用 Windows 自带的 PowerShell；从 GitHub 下载时请保留整个项目目录。
+
+### 手动安装
+
 需要 Python 3.11+ 和 Chrome / Chromium。以下命令在 Windows PowerShell 的项目根目录执行，直接使用虚拟环境中的 Python，无需先激活环境。
 
 ```powershell
