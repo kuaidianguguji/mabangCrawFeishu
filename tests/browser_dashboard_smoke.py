@@ -63,7 +63,9 @@ def main():
             config["timing"].update(capture_timeout=8, retry_count=0)
             browser, tab = open_browser(config)
             try:
-                for mode in ("switch_and_scroll", "already_selected_initial_responses"):
+                for mode in ("switch_and_scroll", "already_selected_initial_responses", "different_api_host"):
+                    if mode == "different_api_host":
+                        config["mabang"]["api_base"] = config["mabang"]["api_base"].replace("127.0.0.1", "localhost")
                     saved = {}
                     captured, errors = collect(tab, config, lambda name, body: saved.update({name: body}))
                     assert len(captured) == len(saved) == 8, (mode, errors, list(captured))

@@ -7,7 +7,7 @@ from .config import load_config
 from .storage import FileSink, write_json
 from .feishu_plan import build_plan
 from .diagnostics import FeishuError, safe_text
-from .retry import run_with_retry, retryable
+from .retry import run_with_retry, retryable, CaptureIncompleteError
 
 
 def read_responses(folder):
@@ -89,12 +89,14 @@ def run_collection(config):
                 restore_script = None
             save_login_state(tab, config)
             # 完整 JSON 先保留在内存；后续落盘失败归入获取后重试，不能重新采集。
-            captured, errors = collect(tab, config, lambda name, body: None)
+            captured, errors = collect(tab, config, lambda name, body: None,
+                                       save_diagnostics=lambda report: write_json(sink.path / "capture_diagnostics.json", report))
             if len(captured) != len(MODULES):
                 for name, body in captured.items():
                     sink.save_raw(name, body)
                 sink.finish(captured, errors)
-                raise RuntimeError("八个接口尚未收齐；失败轮次已保留，准备获取数据前整体重试")
+                missing = ", ".join(n for n in MODULES if n not in captured)
+                raise CaptureIncompleteError(f"八个接口尚未收齐；缺少 {missing}；详情见 {sink.path / 'capture_diagnostics.json'}")
             success = True
             return sink, captured, errors
         except Exception as exc:
@@ -110,6 +112,8 @@ def run_collection(config):
                 save_login_state(tab, config)
             if browser is not None and (not success or config["browser"]["close_on_exit"]):
                 try:
+                    logging.info("程序主动关闭本次专用浏览器：%s", "采集尝试失败，释放浏览器以供整体重试重新打开；不是检测到浏览器崩溃"
+                                 if not success else "采集已完成，close_on_exit=true")
                     browser.quit()
                 except Exception as exc:
                     logging.warning("关闭本次专用浏览器失败：%s", type(exc).__name__)

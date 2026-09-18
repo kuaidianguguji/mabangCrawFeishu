@@ -1,10 +1,15 @@
 """有界重试；次数均为首次执行之外的额外次数，不捕获 Ctrl+C。"""
 import logging
 import time
+from .diagnostics import safe_text, FeishuError
 
 
 class PermanentError(RuntimeError):
     """需要修改配置或人工处理的问题，不自动重试。"""
+
+
+class CaptureIncompleteError(RuntimeError):
+    """程序生成的缺少接口说明，可以安全输出。"""
 
 
 def retryable(exc):
@@ -20,6 +25,8 @@ def run_with_retry(config, key, operation, label=None):
         try:
             result = operation()
         except Exception as exc:
+            reason = safe_text(exc, config) if isinstance(exc, (CaptureIncompleteError, PermanentError, FeishuError)) else "请查看该阶段前面的诊断日志（第三方异常内容不直接输出）"
+            logging.warning("阶段=%s；失败原因=%s", label, reason)
             # 第三方异常可能附带密码、Cookie 或请求正文，仅输出类型。
             if not retryable(exc) or attempt == total:
                 logging.error("阶段=%s 失败；异常=%s；%s", label, type(exc).__name__,

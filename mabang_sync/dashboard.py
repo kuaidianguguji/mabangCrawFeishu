@@ -95,7 +95,8 @@ def trigger_dashboard(tab, config, targets):
     m, t = config["mabang"], config["timing"]
     def restart_listener():
         stop_listener(tab)
-        tab.listen.start(targets)
+        tab.listen.start(targets, method=True, res_type=True)
+        logging.info("网络监听已启动：全部资源类型/所有请求方法；URL过滤=%s；先监听再进入看板", targets)
     load_page(tab, m["dashboard_url"], config, before_attempt=restart_listener)
     button, actual_text = wait_timezone_rendered(tab, config)
     selected = m["timezone_text"] in actual_text
@@ -106,7 +107,7 @@ def trigger_dashboard(tab, config, targets):
     else:
         # 首次加载使用了其他时区，清空旧队列后只采集切换触发的响应。
         stop_listener(tab)
-        tab.listen.start(targets)
+        tab.listen.start(targets, method=True, res_type=True)
         logging.info("看板时区不是 %s，弃用首次响应并重启监听后选择巴西时区", m["timezone_text"])
         click_button(tab, m["timezone_button_xpath"], config, click_kwargs={"by_js": False},
                      satisfied=lambda: any(panel.states.is_displayed for panel in

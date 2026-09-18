@@ -35,13 +35,16 @@ def open_browser(config):
 
 def ensure_login(tab, config):
     m, t = config["mabang"], config["timing"]
+    logging.info("登录确认参数：login_timeout=%s 秒；post_submit_timeout=%s 秒；成功标志 XPath=%s",
+                 t["login_timeout"], t["post_submit_timeout"], m["logged_in_xpath"])
     load_page(tab, m["home_url"], config)
     deadline = time.monotonic() + t["login_timeout"]
     submitted = False
     clicked = False
     stage = "等待首页登录状态"
     while time.monotonic() < deadline:
-        if tab.ele("xpath:" + m["logged_in_xpath"], timeout=0.1):
+        marker = tab.ele("xpath:" + m["logged_in_xpath"], timeout=0.1)
+        if marker:
             logging.info("已检测到登录成功标志 mb-user")
             return
         link = tab.ele("xpath:" + m["login_link_xpath"], timeout=0.1)
@@ -74,7 +77,12 @@ def ensure_login(tab, config):
                 click_button(tab, m["submit_xpath"], config,
                              satisfied=lambda: bool(tab.ele("xpath:" + m["logged_in_xpath"], timeout=0.1)))
                 submitted = True
+                # 页面可能等待验证码或异步登录回调，不沿用表单阶段剩余时间。
+                deadline = max(deadline, time.monotonic() + t["post_submit_timeout"])
                 stage = "已提交登录，等待首页；检查验证码或登录错误提示"
-                logging.info("已提交登录；如有验证码，请在浏览器中完成")
+                logging.info("已提交登录；将额外等待最多 %s 秒确认 mb-user；如有验证码，请在浏览器中完成", t["post_submit_timeout"])
         time.sleep(t["poll_interval"])
+    logging.error("登录确认超时：stage=%s；当前页面=%s；成功标志 XPath=%s 仍不存在；登录按钮仍存在=%s",
+                  stage, getattr(tab, "url", "unknown"), m["logged_in_xpath"],
+                  bool(tab.ele("xpath:" + m["login_link_xpath"], timeout=0.1)))
     raise RuntimeError(f"登录确认超时：{stage}；请检查页面和配置的 XPath/登录成功标志")

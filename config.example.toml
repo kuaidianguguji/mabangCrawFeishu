@@ -35,7 +35,8 @@ timezone_list_xpath = '//section//div[@role="listbox"]'
 [timing]
 element_timeout = 15
 page_timeout = 45
-login_timeout = 120 # 有验证码时可在浏览器手动完成
+login_timeout = 120 # 登录入口、表单出现及一般登录确认的最长秒数
+post_submit_timeout = 180 # 点击提交后额外等待成功标志，适应登录接口慢/验证码回调
 capture_timeout = 60 # 每轮监听的总等待秒数
 poll_interval = 0.5
 retry_count = 2 # 单轮采集内部补齐接口的额外次数；与 retry.before_capture 整体重试独立

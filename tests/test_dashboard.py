@@ -17,7 +17,7 @@ class DashboardTests(unittest.TestCase):
         trigger_dashboard(tab, self.config, ["endpoint"])
         actions = [c[0] for c in tab.mock_calls]
         self.assertEqual(actions[:4], ["listen.stop", "listen.start", "get", "ele"])
-        tab.listen.start.assert_called_once_with(["endpoint"])
+        tab.listen.start.assert_called_once_with(["endpoint"], method=True, res_type=True)
         tab.listen.stop.assert_called_once()
         tab.refresh.assert_not_called()
         tab.ele.return_value.click.assert_not_called()
